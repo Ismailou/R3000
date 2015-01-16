@@ -442,30 +442,26 @@ begin
 		DI_ctrl.SIGNED_EXT <= '0';
 	end if;
 	
-	-- TODO: calculate control signal for ADD instruction ( 2 register source and one destination)
+  ------------------------------------------------------------------
+  -- Signal control of type R operations
+  ------------------------------------------------------------------	 
 	if (OP=TYPE_R) then
-	  -- DI control signal
-	     --DI_ctrl.SIGNED_EXT    <= '0';
 	  
-	  -- ALU control siglans
-	     --EX_ctrl.ALU_OP     <= ALU_ADD;
-	  --EX_ctrl.ALU_SIGNED <= '0';
 	  EX_ctrl.ALU_SRCA   <= REGS_QA;
 	  EX_ctrl.ALU_SRCB   <= REGS_QB;
-	  EX_ctrl.REG_DST    <= REG_RD; -- why and how ?????
+	  EX_ctrl.REG_DST    <= REG_RD; 
 	  
 	  -- MEM signals for the moment (disabled)
 	  MEM_ctrl.DC_DS     <= MEM_32;
 	  MEM_ctrl.DC_RW     <= '0';
 	  MEM_ctrl.DC_AS     <= '0';
-	     --MEM_ctrl.DC_SIGNED <= '0';
 
 	  -- ER control signals
 	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
 		
 		-- Test signed/unsigned operation
-		if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then -- TO REMOVE or (F=iOR) or (F=iNOR) or (F=iXOR) or (F=SLT) or (F=LSL) or (F=LSR) or (F=JR) or (F=JALR)) then
+		if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
 		  DI_ctrl.SIGNED_EXT <= '1';
 		  EX_ctrl.ALU_SIGNED <= '1';
 		  MEM_ctrl.DC_SIGNED <= '1';
@@ -491,15 +487,89 @@ begin
 	  elsif (F=iXOR) then
 	    EX_ctrl.ALU_OP <= ALU_XOR;
 	  elsif (F=LSL) then
+	    EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
 	    EX_ctrl.ALU_OP <= ALU_LSL;
 	  elsif (F=LSR) then
+	    EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
 	    EX_ctrl.ALU_OP <= ALU_LSR;
 	  end if;
-	  
-	  -- TODO JR & JALR             
-	    
+	                 
 	end if;
+  
+  ------------------------------------------------------------------
+  -- Signal control of type I operations
+  ------------------------------------------------------------------ 
+	-- if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
+	     -- or (OP=ORI) or (OP=XORI) or (OP=LUI) or (OP=LB) or (OP=SH) or (OP=SW) 
+	     -- or (OP=LBU) or (OP=LHU) or (OP=SB)  or (OP=SH)  or (OP=SW)  or (OP=BEQ)  
+	     -- or (OP=BNE)  or (OP=BLEZ) or (OP=BGTZ)) then
+	
+	if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
+	     or (OP=ORI) or (OP=XORI)) then
+	  
+	  EX_ctrl.ALU_SRCA   <= REGS_QA;
+	  EX_ctrl.ALU_SRCB   <= IMMD;
+	  EX_ctrl.REG_DST    <= REG_RT; 
+	  
+	  -- MEM signals for the moment (disabled)
+	  MEM_ctrl.DC_DS     <= MEM_32;
+	  MEM_ctrl.DC_RW     <= '0'; -- not important (we have not a write or read memory operations)
+	  MEM_ctrl.DC_AS     <= '0'; -- data memory not actif
 
+	  -- ER control signals
+	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+		
+		-- Test signed/unsigned operation
+		if ((F=ADDIU) or (F=SLTIU)) then
+		  DI_ctrl.SIGNED_EXT <= '1';
+		  EX_ctrl.ALU_SIGNED <= '1';
+		  MEM_ctrl.DC_SIGNED <= '1';
+		else 
+		  DI_ctrl.SIGNED_EXT <= '0';
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+	  end if; 
+	  
+	  -- ALU opertation signal
+	  if ((OP=ADDI) or (OP=ADDIU)) then
+	    EX_ctrl.ALU_OP <= ALU_ADD;
+	  elsif ((OP=SLTI) or (OP=SLTIU)) then
+	    EX_ctrl.ALU_OP <= ALU_SLT;
+	  elsif (OP=ANDI) then
+	    EX_ctrl.ALU_OP <= ALU_AND;
+	  elsif (F=ORI) then
+	    EX_ctrl.ALU_OP <= ALU_OR;
+	  elsif (F=XORI) then
+	    EX_ctrl.ALU_OP <= ALU_XOR;
+	  end if;
+	                 
+	end if;
+  
 end control;
 
 end cpu_package;
+
+
+	---------------------------------------------------------------
+	-- Instruction de type I : Immediat
+	constant ADDI 		: std_logic_vector := "001000" ;
+	constant ADDIU 	: std_logic_vector := "001001" ;
+	constant SLTI 		: std_logic_vector := "001010" ;
+	constant SLTIU 	: std_logic_vector := "001011" ;
+	constant ANDI 		: std_logic_vector := "001100" ;
+	constant ORI 	 	: std_logic_vector := "001101" ;
+	constant XORI 		: std_logic_vector := "001110" ;
+	constant LUI 		 : std_logic_vector := "001111" ;
+	constant LB 		  : std_logic_vector := "100000" ;
+	constant LH 		  : std_logic_vector := "100001" ;
+	constant LW 		  : std_logic_vector := "100011" ;
+	constant LBU 		 : std_logic_vector := "100100" ;
+	constant LHU 		 : std_logic_vector := "100101" ;
+	constant SB 		  : std_logic_vector := "101000" ;
+	constant SH 		  : std_logic_vector := "101001" ;
+	constant SW 		  : std_logic_vector := "101011" ;
+	constant BEQ 		 : std_logic_vector := "000100" ;
+	constant BNE 		 : std_logic_vector := "000101" ;
+	constant BLEZ 		: std_logic_vector := "000110" ;
+	constant BGTZ 		: std_logic_vector := "000111" ;		

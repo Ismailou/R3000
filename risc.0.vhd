@@ -236,14 +236,6 @@ begin
 		
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
-	  -- set UAL signals (REGS_QB,IMMD, VAL_DEC) !!!! must be outside of this process to update sources befor execution of ALU
-    --ex_alu_a <= reg_DI_EX.rs_read;
-    --ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB;
-    --            reg_DI_EX.val_dec when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC;
-    --            else  reg_DI_EX.imm_ext; -- IMMD
-                  
-    -- ex_alu_signed <= reg_DI_EX.ex_ctrl.ALU_SIGNED;
-    -- ex_alu_op     <= reg_DI_EX.ex_ctrl.ALU_OP;
 															  
 		-- Mise a jour du registre inter-etage EX/MEM
 		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
