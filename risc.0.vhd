@@ -49,7 +49,7 @@ architecture behavior of risc is
   type CP_SRC 	 is (CP_SRC_ADR,CP_SRC_NEXT_PC);
     
 	-- definition des ressources internes
-	signal CPSrc : CP_SRC := '0';
+	signal CPSrc : CP_SRC := CP_SRC_NEXT_PC;
 	
 	-- Registres du pipeline
 	signal reg_EI_DI	: EI_DI;		-- registre pipeline EI/DI
@@ -119,8 +119,8 @@ icache : entity work.memory(behavior)
 ei_next_pc <= reg_PC(PC'range)+1;
 
 -- Add multipleser to chose the address of J instructions
-reg_PC <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR;
-          else ri_next_pc when CPSrc = CP_SRC_NEXT_PC;
+reg_PC <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
+          else ei_next_pc when CPSrc = CP_SRC_NEXT_PC;
 
 ei_halt   <= '0';
 ei_flush  <= '0';
@@ -247,6 +247,7 @@ begin
 		-- Mise a jour du registre inter-etage EX/MEM
 		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
 		reg_EX_MEM.ual_S    <= ex_alu_s;						               -- resultat ual -- (TODO)
+		reg_EX_MEM.zero     <= ex_alu_z;
 		
 		-- propagation des signaux de controle de l'etage MEM & ER
 		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
@@ -280,7 +281,11 @@ dcache : entity work.memory(behavior)
 			port map ( RST=>RST, CLK=>CLK, RW=>mem_rw, DS=>mem_ds, Signed=>mem_signed, AS=>mem_as, Ready=>open,
 								Berr=>open, ADR=>mem_adr, D=>(others => '0'), Q=>mem_data );
 
-					
+------------------------------------------------------------------
+-- generate CPSrc signal in case of J instruction
+CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1'
+         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
+         
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER
 ------------------------------------------------------------------
