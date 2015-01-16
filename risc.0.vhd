@@ -283,7 +283,7 @@ dcache : entity work.memory(behavior)
 
 ------------------------------------------------------------------
 -- generate CPSrc signal in case of J instruction
-CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1'
+CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
          else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
          
 ------------------------------------------------------------------
