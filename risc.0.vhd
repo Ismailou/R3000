@@ -46,8 +46,11 @@ architecture behavior of risc is
 	-- definition de constantes
 
 	-- definitions de types/soustypes
-
+  type CP_SRC 	 is (CP_SRC_ADR,CP_SRC_NEXT_PC);
+    
 	-- definition des ressources internes
+	signal CPSrc : CP_SRC := '0';
+	
 	-- Registres du pipeline
 	signal reg_EI_DI	: EI_DI;		-- registre pipeline EI/DI
 	signal reg_DI_EX	: DI_EX;		-- registre pipeline DI/EX
@@ -114,6 +117,10 @@ icache : entity work.memory(behavior)
 
 -- Incrementation du PC (format mot)
 ei_next_pc <= reg_PC(PC'range)+1;
+
+-- Add multipleser to chose the address of J instructions
+reg_PC <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR;
+          else ri_next_pc when CPSrc = CP_SRC_NEXT_PC;
 
 ei_halt   <= '0';
 ei_flush  <= '0';
