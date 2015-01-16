@@ -155,7 +155,7 @@ regf : entity work.registres(behavior)
 
 -- Calcul de l'extension de la valeur immediate
 di_imm_ext(IMM'range) <= reg_EI_DI.inst(IMM'range);
-di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when di_ctrl_di.signed_ext='0' else
+di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when  di_ctrl_di.signed_ext='0' else
 															(others => reg_EI_DI.inst(IMM'high));
 -- Appel de la procedure contol
 UC: control( reg_EI_DI.inst(OPCODE'range),
