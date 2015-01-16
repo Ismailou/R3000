@@ -128,10 +128,10 @@ ei_flush  <= '0';
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage EI/DI et du PC
-EI: process(CLK,RST)
+EI: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset du PC
 		reg_PC <= PC_DEFL;
 	-- test du front actif d'horloge
@@ -178,10 +178,10 @@ di_flush <= '0';
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage DI/EX
-DI: process(CLK,RST)
+DI: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset des controle du pipeline
 		reg_DI_EX.ex_ctrl 	<= EX_DEFL;
 		reg_DI_EX.mem_ctrl <= MEM_DEFL;
@@ -233,10 +233,10 @@ ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
 --	l'etage EX
-EX: process(CLK,RST)
+EX: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset des controle du pipeline
 		reg_EX_MEM.mem_ctrl <= MEM_DEFL;
 		reg_EX_MEM.er_ctrl 	<= ER_DEFL;
@@ -330,30 +330,5 @@ er_regd <=  reg_MEM_ER.ual_S when reg_MEM_ER.er_ctrl.REGS_SRCD = ALU_S
 	            
 er_adrw <= reg_MEM_ER.reg_dst;
 		
--- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
--- reg_MEM_ER.er_ctrl.REGS_W;		     
-		            		            
-------------------------------------------------------------------
--- Process Etage ER (ER).
-------------------------------------------------------------------		              
---ER: process(CLK,RST)
---begin
-	-- test du reset
-	--if (RST='0') then
-		-- reset des controle du pipeline
-		--er_regd 	<= (others => '0');
-		--er_reg_w <= '1';
-		--er_adrw  <= (others => '0');
-	
-	-- test du front actif d'horloge
-	--if (CLK'event and CLK=CPU_WR_FRONT) then 
-	            
-	--	er_adrw <= reg_MEM_ER.reg_dst;
-		
-		-- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
-  --  er_reg_w <= reg_MEM_ER.er_ctrl.REGS_W;
-		
-	--end if;
---end process ER;
 
 end behavior;
