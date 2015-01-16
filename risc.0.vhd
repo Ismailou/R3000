@@ -220,7 +220,7 @@ AL: alu (ex_alu_a, ex_alu_b,
 -- set UAL Input Qa and QB (REGS_QB,IMMD, VAL_DEC)
 ex_alu_a <= reg_DI_EX.rs_read;
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
-            -- else reg_DI_EX.val_dec when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
+            else reg_DI_EX.val_dec when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
             else  reg_DI_EX.imm_ext; -- IMMD
                   
 ------------------------------------------------------------------
@@ -252,12 +252,22 @@ begin
 		-- propagation des signaux de controle de l'etage MEM & ER
 		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
 		reg_EX_MEM.er_ctrl		<= reg_DI_EX.er_ctrl;
+		
+		-- affectation sequentielle pour garantir la mise a jour des signal a la fin de cycle
+		if (reg_DI_EX.ex_ctrl.REG_DST = REG_RD) then
+      reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
+    elsif (reg_DI_EX.ex_ctrl.REG_DST = REG_RT) then 
+      reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
+    else
+      reg_EX_MEM.reg_dst <= "11111"; -- R31
+    end if; 
+      		  
 	end if;
 end process EX;
 
-reg_EX_MEM.reg_dst  <= reg_DI_EX.rd when reg_DI_EX.ex_ctrl.REG_DST = REG_RD else
-		                   reg_DI_EX.rt when reg_DI_EX.ex_ctrl.REG_DST = REG_RT else
-		                   "11111" ;		    	-- R31
+-- reg_EX_MEM.reg_dst  <= reg_DI_EX.rd when reg_DI_EX.ex_ctrl.REG_DST = REG_RD else
+		                   -- reg_DI_EX.rt when reg_DI_EX.ex_ctrl.REG_DST = REG_RT else
+		                   -- "11111" ;		    	-- R31
 		                       
 -- ===============================================================
 -- === Etage MEM =================================================
