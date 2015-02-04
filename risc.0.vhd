@@ -60,6 +60,7 @@ architecture behavior of risc is
 	-- Ressources de l'etage EI
 	signal reg_PC		: ADDR;			-- compteur programme format octet
 	signal ei_next_pc	: PC;				-- pointeur sur prochaine instruction
+	signal ei_pc	: PC;				     -- pointeur sur instruction courrante
 	signal ei_inst		: INST;			-- instruction en sortie du cache instruction
 	signal ei_halt		: std_logic;	-- suspension etage pipeline
 	signal ei_flush	: std_logic;	-- vidange de l'etage
@@ -119,7 +120,7 @@ icache : entity work.memory(behavior)
 ei_next_pc <= reg_PC(PC'range)+1;
 
 -- Add multipleser to chose the address of J instructions
-reg_PC <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
+ei_pc <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
           else ei_next_pc when CPSrc = CP_SRC_NEXT_PC;
 
 ei_halt   <= '0';
@@ -137,7 +138,7 @@ begin
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
 		-- Mise a jour PC
-		reg_PC(PC'range)<=ei_next_pc;
+		reg_PC(PC'range)<=ei_pc;
 		-- Mise a jour du registre inter-etage EI/DI
 		reg_EI_DI.pc_next <= ei_next_pc;
 		reg_EI_DI.inst <= ei_inst;
