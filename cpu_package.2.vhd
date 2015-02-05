@@ -175,6 +175,8 @@ package cpu_package is
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
 		REG_DST 			 : MUX_REG_DST;					-- mux pour registre destinataire
 		--BRA_SRC			: std_logic_vector (2 downto 0);
+		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
+		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 			
 	-- default EX control
@@ -187,8 +189,6 @@ package cpu_package is
 		DC_RW 			 : std_logic;							-- DataCache signal R/W*
 		DC_AS 			 : std_logic;							-- DataCache signal Address Strobe
 		DC_SIGNED	: std_logic;							-- DataCache operation signee ou non (lecture)
-		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
-		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 		
 	-- default MEM control
@@ -551,12 +551,10 @@ begin
 	------------------------------------------------------------------
   -- Decode of J instruction
   ------------------------------------------------------------------
-  if (OP=TYPE_R) then
-   -- test operation
-	 if ((OP=J) or (OP=JAL)) then
-	       MEM_ctrl.SAUT <= '1';
-	 end if;
+  if ((OP=J) or (OP=JAL)) then
+	     EX_ctrl.SAUT <= '1';
   end if;
+  
 	
 end control;
 
