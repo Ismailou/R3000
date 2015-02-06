@@ -551,8 +551,28 @@ begin
 	------------------------------------------------------------------
   -- Decode of J instruction
   ------------------------------------------------------------------
+  
   if ((OP=J) or (OP=JAL)) then
-	     EX_ctrl.SAUT <= '1';
+	    -- set signed signal to 0
+	    DI_ctrl.SIGNED_EXT <= '0';
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+	    
+	    -- disable write signals
+	    MEM_ctrl.DC_RW     <= '0';
+	    ER_ctrl.REGS_W     <= '0';
+	    
+	    -- Set saut signal
+	    EX_ctrl.SAUT <= '1';
+	    
+	    -- if JAL then write NextPC to R31 (ra)
+	   if (OP=JAL) then
+	     -- We save PC+4 value in R31 regidter
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+		 end if;
   end if;
   
 	

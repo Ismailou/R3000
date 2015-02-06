@@ -96,6 +96,7 @@ architecture behavior of risc is
   signal mem_signed	  : std_logic;
   
 	-- Ressources de l'etage ER
+	signal er_pc     : ADDR;
 	signal er_regd		 : DATA;			-- donnees a ecrire dans le banc de registre
 	signal er_adrw		 : REGS;			-- adresse du registre a ecrire dans le banc
 	signal er_reg_w  : std_logic;
@@ -328,10 +329,14 @@ end process MEM;
 -- === Etage ER ==================================================
 -- ===============================================================
 
+er_pc(PC'range) <= reg_MEM_ER.pc_next;
+er_pc(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4) <= "0000"; -- reg_DI_EX.pc_next(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4); -- 31..28 
+er_pc(PCLOW-1 downto 0) <= "00";
+
 -- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
 er_regd <=  reg_MEM_ER.ual_S when reg_MEM_ER.er_ctrl.REGS_SRCD = ALU_S
 	          else reg_MEM_ER.mem_Q when reg_MEM_ER.er_ctrl.REGS_SRCD = MEM_Q
-	          else reg_MEM_ER.pc_next when reg_MEM_ER.er_ctrl.REGS_SRCD = NextPC -- NextPC
+	          else er_pc when reg_MEM_ER.er_ctrl.REGS_SRCD = NextPC -- NextPC
 	          else (others => '0');
 
 	            
