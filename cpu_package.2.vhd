@@ -155,7 +155,8 @@ package cpu_package is
 	type MUX_ALU_B 	 is (REGS_QB,IMMD,VAL_DEC);
 	type MUX_REG_DST	is (REG_RD,REG_RT,R31);
 	type MUX_REGS_D	 is (ALU_S,MEM_Q,NextPC);
-
+  type BRANCHEMENT_SOURCE is (BRANCHEMENT_NONE,BRANCHEMENT_BLTZ,BRANCHEMENT_BGEZ,BRANCHEMENT_BLTZAL,BRANCHEMENT_BGEZAL);
+    
 	---------------------------------------------------------------
 	-- Definitions des structures de controles des etages
 
@@ -174,14 +175,13 @@ package cpu_package is
 		ALU_SRCA 		 : MUX_ALU_A;							-- mux pour entree A de l'ALU
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
 		REG_DST 			 : MUX_REG_DST;					-- mux pour registre destinataire
-		--BRA_SRC			: std_logic_vector (2 downto 0);
-		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
+		BRA_SRC			  : BRANCHEMENT_SOURCE;
 		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 			
 	-- default EX control
 	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_OPS'low, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low,
-											REG_DST=>MUX_REG_DST'low, others=>'0' );
+											REG_DST=>MUX_REG_DST'low, BRA_SRC=>BRANCHEMENT_SOURCE'low, others=>'0' );
 			
 	-- Structure des signaux de control de l'etage MEM
 	type mxMEM is record
@@ -584,6 +584,57 @@ begin
 	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 		 end if;
+	
+	 ------------------------------------------------------------------
+   -- Signal control Instruction de Type B : Branchement
+   ------------------------------------------------------------------	 
+  	if (OP=TYPE_B) then
+  	  -- not signed operation
+  	  DI_ctrl.SIGNED_EXT <= '0';
+		 EX_ctrl.ALU_SIGNED <= '0';
+		 MEM_ctrl.DC_SIGNED <= '0';
+		   
+	   EX_ctrl.ALU_SRCA   <= REGS_QA;
+	   EX_ctrl.ALU_SRCB   <= REGS_QB;
+  	  EX_ctrl.REG_DST    <= REG_RD; 
+	  
+  	  -- MEM signals for the moment (disabled)
+	   MEM_ctrl.DC_DS     <= MEM_32;
+  	  MEM_ctrl.DC_RW     <= '0';
+	   MEM_ctrl.DC_AS     <= '0';
+
+  	  -- ER control signals
+	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+    	ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+    	
+    	-- set instruction to SUB
+    	EX_ctrl.ALU_OP <= ALU_SUB;
+    	
+	   if (F=BLTZ) then -- bltz Rx, offset
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZ;
+	   elsif (F= BGEZ) then -- bgez Rx, offset
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZ;
+	   elsif (F=BLTZAL) then -- bltzal Rx, offset, R31 = PC+4
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZAL;
+	     
+	     -- We save PC+4 value in R31 regidter
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+		   
+	   elsif (F=BGEZAL) then -- bgezal Rx, offset, R31 = PC+4
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZAL;
+	     
+	     -- We save PC+4 value in R31 regidter
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+	   end if;
+	   
+	 end if;
+	
     end if;
   
 	end if;
