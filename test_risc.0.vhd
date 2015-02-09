@@ -21,10 +21,11 @@ end test_risc;
 architecture behavior of test_risc is
 
 -- definition des constantes de test
+
 	constant FILE_I	: string 	:= "Benchs/mysecondasm.bin";
 	constant FILE_D	: string 	:= "";
 	constant WFRONT 	: std_logic	:= CPU_WR_FRONT;
-	constant TIMEOUT 	: time 		:= 150 ns; -- timeout de la simulation
+	constant TIMEOUT 	: time 		:= 400 ns; -- timeout de la simulation
 
 -- definition de constantes
 constant clkpulse : Time := 50 ps; -- 1/2 periode horloge
@@ -35,7 +36,7 @@ constant clkpulse : Time := 50 ps; -- 1/2 periode horloge
 
 -- definition de ressources externes
 signal E_CLK							: std_logic;
-signal E_RST		 					: std_logic; -- actifs a l'etat bas
+signal E_RST		 				: std_logic; -- actifs a l'etat bas
 
 begin
 

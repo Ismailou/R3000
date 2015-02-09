@@ -182,6 +182,7 @@ package cpu_package is
 	-- default EX control
 	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_OPS'low, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low,
 											REG_DST=>MUX_REG_DST'low, BRA_SRC=>BRANCHEMENT_SOURCE'low, others=>'0' );
+
 			
 	-- Structure des signaux de control de l'etage MEM
 	type mxMEM is record
@@ -239,7 +240,7 @@ package cpu_package is
 		-- === Data ===
 		pc_next 	: std_logic_vector (PC'range);						   -- cp incremente propage
 		ual_S				: std_logic_vector (DATA'range);						 -- resultat ual
-		--rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
+		rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
 		reg_dst		: std_logic_vector (REGS'range);						 -- registre destination (MUX_REG_DST)
 		zero     : std_logic;
 		-- === Control ===
@@ -441,6 +442,7 @@ begin
 	EX_ctrl <= EX_DEFL;
 	MEM_ctrl <= MEM_DEFL;
 	ER_ctrl <= ER_DEFL;
+
   
   if ( j_count /= 0) then
     DI_ctrl <= DI_DEFL;
@@ -450,6 +452,7 @@ begin
 	  
 	  -- increment j_count
 	  j_count := j_count + 1;
+	  
 	else
 	
 	 -- Controle DI : signe-t-on ou non l'extension de la valeur immediate
@@ -458,104 +461,153 @@ begin
 		  DI_ctrl.SIGNED_EXT <= '1';
   	else
 		  DI_ctrl.SIGNED_EXT <= '0';
-  	end if;
-	
-   ------------------------------------------------------------------
-   -- Signal control of type R operations
-   ------------------------------------------------------------------	 
-  	if (OP=TYPE_R) then
-	    
-  	  EX_ctrl.ALU_SRCA   <= REGS_QA;
-	   EX_ctrl.ALU_SRCB   <= REGS_QB;
-  	  EX_ctrl.REG_DST    <= REG_RD; 
-	  
-  	  -- MEM signals for the moment (disabled)
-	   MEM_ctrl.DC_DS     <= MEM_32;
-  	  MEM_ctrl.DC_RW     <= '0';
-	   MEM_ctrl.DC_AS     <= '0';
+  	end if;	 
 
-  	  -- ER control signals
-	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
-    	ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
-		
-   		-- Test signed/unsigned operation
-    	if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
-		    DI_ctrl.SIGNED_EXT <= '1';
-    		  EX_ctrl.ALU_SIGNED <= '1';
-    		  MEM_ctrl.DC_SIGNED <= '1';
-    	else 
-    		  DI_ctrl.SIGNED_EXT <= '0';
-    		  EX_ctrl.ALU_SIGNED <= '0';
-    		  MEM_ctrl.DC_SIGNED <= '0';
-  	  end if; 
+  ------------------------------------------------------------------
+  -- Signal control of type R operations
+  ------------------------------------------------------------------	 
+	if (OP=TYPE_R) then
 	  
-	   -- ALU opertation signal
-  	  if ((F=ADD) or (F=ADDU)) then
-	      EX_ctrl.ALU_OP <= ALU_ADD;
-  	  elsif ((F=SUB) or (F=SUBU)) then
-	      EX_ctrl.ALU_OP <= ALU_SUB;
-  	  elsif ((F=SLT) or (F=SLTU)) then
-        EX_ctrl.ALU_OP <= ALU_SLT;
-  	  elsif (F=iOR) then
-	      EX_ctrl.ALU_OP <= ALU_OR;
-  	  elsif (F=iAND) then
-	      EX_ctrl.ALU_OP <= ALU_AND;
-  	  elsif (F=iNOR) then
-        EX_ctrl.ALU_OP <= ALU_NOR;
-  	  elsif (F=iXOR) then
-	      EX_ctrl.ALU_OP <= ALU_XOR;
-  	  elsif (F=LSL) then
-	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
-	      EX_ctrl.ALU_OP <= ALU_LSL;
-  	  elsif (F=LSR) then
-	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
-	      EX_ctrl.ALU_OP <= ALU_LSR;
-  	  end if;                
-  	end if;
+	  -- Test signed/unsigned operation
+		if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+		else 
+		  EX_ctrl.ALU_SIGNED <= '1';
+		  MEM_ctrl.DC_SIGNED <= '1';
+	  end if; 
+	  
+	  -- Ex control signals
+	  if (F=LSR or F=LSL) then
+	    EX_ctrl.ALU_SRCA   <= REGS_QB;
+	    EX_ctrl.ALU_SRCB   <= VAL_DEC;
+	  else 
+	    EX_ctrl.ALU_SRCA   <= REGS_QA;
+	    EX_ctrl.ALU_SRCB   <= REGS_QB;
+	  end if;
+	  
+	  EX_ctrl.REG_DST    <= REG_RD;
+	  
+	  -- ALU opertation signal
+	  if ((F=ADD) or (F=ADDU)) then
+	    EX_ctrl.ALU_OP <= ALU_ADD;
+	  elsif ((F=SUB) or (F=SUBU)) then
+	    EX_ctrl.ALU_OP <= ALU_SUB;
+	  elsif ((F=SLT) or (F=SLTU)) then
+	    EX_ctrl.ALU_OP <= ALU_SLT;
+	  elsif (F=iOR) then
+	    EX_ctrl.ALU_OP <= ALU_OR;
+	  elsif (F=iAND) then
+	    EX_ctrl.ALU_OP <= ALU_AND;
+	  elsif (F=iNOR) then
+	    EX_ctrl.ALU_OP <= ALU_NOR;
+	  elsif (F=iXOR) then
+	    EX_ctrl.ALU_OP <= ALU_XOR;
+	  elsif (F=LSL) then
+	    EX_ctrl.ALU_OP <= ALU_LSL;
+	  elsif (F=LSR) then
+	    EX_ctrl.ALU_OP <= ALU_LSR;
+	  end if; 
+	  
+	  -- MEM signals for the moment (disabled)
+	  MEM_ctrl.DC_DS     <= MEM_32;
+	  MEM_ctrl.DC_RW     <= '0';
+	  MEM_ctrl.DC_AS     <= '0';
+
+	  -- ER control signals
+	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+	                 
+	end if;
   
-    ------------------------------------------------------------------
-    -- Signal control of type I operations
-    ------------------------------------------------------------------ 
-	  if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
-	      or (OP=ORI) or (OP=XORI)) then
-	  
-	   EX_ctrl.ALU_SRCA   <= REGS_QA;
-	   EX_ctrl.ALU_SRCB   <= IMMD;
-	   EX_ctrl.REG_DST    <= REG_RT; 
-	  
-	   -- MEM signals for the moment (disabled)
-	   MEM_ctrl.DC_DS     <= MEM_32;
-	   MEM_ctrl.DC_RW     <= '0'; -- not important (we have not a write or read memory operations)
-	   MEM_ctrl.DC_AS     <= '0'; -- data memory not actif
+  ------------------------------------------------------------------
+  -- Signal control of type I operations
+  ------------------------------------------------------------------ 
 
-	   -- ER control signals
-	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
-		 ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
-		
-		 -- Test signed/unsigned operation
-		 if ((F=ADDIU) or (F=SLTIU)) then
-		   DI_ctrl.SIGNED_EXT <= '1';
-		   EX_ctrl.ALU_SIGNED <= '1';
-		   MEM_ctrl.DC_SIGNED <= '1';
-		 else 
-		   DI_ctrl.SIGNED_EXT <= '0';
-		   EX_ctrl.ALU_SIGNED <= '0';
-		   MEM_ctrl.DC_SIGNED <= '0';
-	   end if; 
+	-- Operations with an immediat value and two registers (rs source and et register destination)
+	if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
+	     or (OP=ORI) or (OP=XORI)) then
 	  
-	   -- ALU opertation signal
-	   if ((OP=ADDI) or (OP=ADDIU)) then
-	     EX_ctrl.ALU_OP <= ALU_ADD;
-	   elsif ((OP=SLTI) or (OP=SLTIU)) then
-	     EX_ctrl.ALU_OP <= ALU_SLT;
-	   elsif (OP=ANDI) then
-	     EX_ctrl.ALU_OP <= ALU_AND;
-	   elsif (F=ORI) then
-	     EX_ctrl.ALU_OP <= ALU_OR;
-	   elsif (F=XORI) then
-	     EX_ctrl.ALU_OP <= ALU_XOR;
-	   end if;                
-	 end if;
+	  -- Test signed/unsigned operation
+		if ((F=ADDIU) or (F=SLTIU)) then
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+		else 
+		  EX_ctrl.ALU_SIGNED <= '1';
+		  MEM_ctrl.DC_SIGNED <= '1';
+	  end if;
+	  
+	  EX_ctrl.ALU_SRCA   <= REGS_QA;
+	  EX_ctrl.ALU_SRCB   <= IMMD;
+	  EX_ctrl.REG_DST    <= REG_RT; 
+	  
+	  -- ALU opertation signal
+	  if ((OP=ADDI) or (OP=ADDIU)) then
+	    EX_ctrl.ALU_OP <= ALU_ADD;
+	  elsif ((OP=SLTI) or (OP=SLTIU)) then
+	    EX_ctrl.ALU_OP <= ALU_SLT;
+	  elsif (OP=ANDI) then
+	    EX_ctrl.ALU_OP <= ALU_AND;
+	  elsif (OP=ORI) then
+	    EX_ctrl.ALU_OP <= ALU_OR;
+	  elsif (OP=XORI) then
+	    EX_ctrl.ALU_OP <= ALU_XOR;
+	  end if;
+	  
+	  -- MEM signals for the moment (disabled)
+	  MEM_ctrl.DC_DS     <= MEM_32;
+	  MEM_ctrl.DC_RW     <= '0'; -- not important (we have not a write or read memory operations)
+	  MEM_ctrl.DC_AS     <= '0'; -- data memory not actif
+
+	  -- ER control signals
+	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- the written value in the register banc is the alu result 
+	                 
+	end if;
+	
+	-- Memory load and store operations 
+	if ((OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or (OP=LHU)
+	     or (OP=SB) or (OP=SH) or (OP=SW)) then
+	  
+	  -- Test signed/unsigned operation
+		if ((OP=LBU) or (OP=LHU)) then
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+		else 
+		  EX_ctrl.ALU_SIGNED <= '1';
+		  MEM_ctrl.DC_SIGNED <= '1';
+	  end if;
+	  
+	  EX_ctrl.ALU_SRCA   <= REGS_QA; -- register source to compute the destination
+	  EX_ctrl.ALU_SRCB   <= IMMD;
+	  EX_ctrl.REG_DST    <= REG_RT;  -- is important only for load operations  
+	  -- ALU opertation signal
+	  EX_ctrl.ALU_OP <= ALU_ADD;
+	
+	  
+	  -- MEM signals: Data size signal
+	  if ((OP=LB) or (OP=LBU) or (OP=SB)) then
+	    MEM_ctrl.DC_DS     <= MEM_8;
+	  elsif ((OP=SW) or (OP=LW))  then
+	    MEM_ctrl.DC_DS     <= MEM_32;
+	  else
+	    MEM_ctrl.DC_DS     <= MEM_16;
+	  end if;
+	  
+	  -- MEM signals: Memory Activation signal  
+	  MEM_ctrl.DC_AS     <= '1'; -- data memory actif for all operations in this case
+	  
+	  -- MEM signals: WR signal & ER signals
+	  if ((OP=SB) or (OP=SH) or (OP=SW)) then
+	    MEM_ctrl.DC_RW   <= '0'; -- for store operations we activate the data cache write signal
+	    ER_ctrl.REGS_W   <= '1'; -- no data to be written in register banc
+	  else 
+	    MEM_ctrl.DC_RW     <= '1'; -- for load operations we activate the data cache read signal
+	    ER_ctrl.REGS_W     <= '0'; -- data read from memory will be stored in register bank (W = 0)
+	    ER_ctrl.REGS_SRCD	 <= MEM_Q; -- the read data from memory has to be written 
+	  end if;
+	    	                 
+	end if;
 	
 	------------------------------------------------------------------
   -- Decode of J instruction
@@ -645,3 +697,4 @@ begin
 end control;
 
 end cpu_package;
+

@@ -171,7 +171,7 @@ regf : entity work.registres(behavior)
 
 -- Calcul de l'extension de la valeur immediate
 di_imm_ext(IMM'range) <= reg_EI_DI.inst(IMM'range);
-di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when di_ctrl_di.signed_ext='0' else
+di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when  di_ctrl_di.signed_ext='0' else
 															(others => reg_EI_DI.inst(IMM'high));
 -- Appel de la procedure contol
 UC: control( reg_EI_DI.inst(OPCODE'range),
@@ -233,11 +233,15 @@ AL: alu (ex_alu_a, ex_alu_b,
 					reg_DI_EX.ex_ctrl.ALU_SIGNED,
 					reg_DI_EX.ex_ctrl.ALU_OP);
 
--- set UAL Input Qa and QB (REGS_QB,IMMD, VAL_DEC)
-ex_alu_a <= reg_DI_EX.rs_read;
+-- set UAL Inputs: ex_alu_a in function of (REGS_QA,REGS_QB,IMMD) and ex_alu_b in function of (REGS_QB,IMMD, VAL_DEC)
+ex_alu_a <= reg_DI_EX.rs_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QA
+            else reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QB
+            else reg_DI_EX.imm_ext; --TODO (not tested)
+              
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
-            else reg_DI_EX.val_dec when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
-            else  reg_DI_EX.imm_ext; -- IMMD
+            -- else ((DATA'range => '0') || reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC -- TOBEASKED
+            else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD; -- IMMD
                   
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
@@ -256,21 +260,29 @@ begin
 															  
 		-- Mise a jour du registre inter-etage EX/MEM
 		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
-		reg_EX_MEM.ual_S    <= ex_alu_s;						               -- resultat ual -- (TODO)
+
+		reg_EX_MEM.ual_S    <= ex_alu_s;						            -- resultat ual -- (TODO)
+		reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
+
 		reg_EX_MEM.zero     <= ex_alu_z;
 		
 		-- propagation des signaux de controle de l'etage MEM & ER
 		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
-		reg_EX_MEM.er_ctrl		<= reg_DI_EX.er_ctrl;
+		reg_EX_MEM.er_ctrl	<= reg_DI_EX.er_ctrl;
+
 		
 		-- affectation sequentielle pour garantir la mise a jour des signal a la fin de cycle
 		if (reg_DI_EX.ex_ctrl.REG_DST = REG_RD) then
       reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
     elsif (reg_DI_EX.ex_ctrl.REG_DST = REG_RT) then 
-      reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
+      reg_EX_MEM.reg_dst  <= reg_DI_EX.rt;
     else
-      reg_EX_MEM.reg_dst <= "11111"; -- R31
+      reg_EX_MEM.reg_dst  <= (others => '1'); -- R31
     end if; 
+    
+    -- propagation des signaux de controle de l'etage MEM & ER
+		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
+		reg_EX_MEM.er_ctrl		<= reg_DI_EX.er_ctrl;
       		  
 	end if;
 end process EX;
@@ -294,8 +306,9 @@ ex_new_pc <= reg_DI_EX.jump_adr when reg_DI_EX.ex_ctrl.SAUT = '1'
 dcache : entity work.memory(behavior)
 			generic map ( DBUS_WIDTH=>CPU_DATA_WIDTH, ABUS_WIDTH=>CPU_ADR_WIDTH, MEM_SIZE=>L1_DSIZE,
 								ACTIVE_FRONT=>L1_FRONT, FILENAME=>DFILE )
-			port map ( RST=>RST, CLK=>CLK, RW=>mem_rw, DS=>mem_ds, Signed=>mem_signed, AS=>mem_as, Ready=>open,
-								Berr=>open, ADR=>mem_adr, D=>(others => '0'), Q=>mem_data );
+			port map ( RST=>RST, CLK=>CLK, RW=>reg_EX_MEM.mem_ctrl.DC_RW, DS=>reg_EX_MEM.mem_ctrl.DC_DS, Signed=>reg_EX_MEM.mem_ctrl.DC_SIGNED, AS=>reg_EX_MEM.mem_ctrl.DC_AS, Ready=>open,
+								Berr=>open, ADR=>reg_EX_MEM.ual_S, D=>reg_EX_MEM.rt, Q=>mem_data );
+
          
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER
@@ -311,13 +324,12 @@ begin
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then 
 		
 		-- set memory control signals
-		mem_rw <= reg_EX_MEM.mem_ctrl.DC_RW ;
-		-- mem_adr <= reg_EX_MEM.mem_ctrl. ; TODO
-		mem_as <= reg_EX_MEM.mem_ctrl.DC_AS;
-		mem_ds <= reg_EX_MEM.mem_ctrl.DC_DS;
-		mem_signed <= reg_EX_MEM.mem_ctrl.DC_SIGNED;
-		
-		
+		-- mem_rw     <= reg_EX_MEM.mem_ctrl.DC_RW;
+		-- mem_adr    <= reg_EX_MEM.ual_S;
+		-- mem_as     <= reg_EX_MEM.mem_ctrl.DC_AS;
+		-- mem_ds     <= reg_EX_MEM.mem_ctrl.DC_DS;
+		-- mem_signed <= reg_EX_MEM.mem_ctrl.DC_SIGNED;
+			
 		-- setting contorl signals of MEM_ER etage
 		reg_MEM_ER.pc_next <= reg_EX_MEM.pc_next; -- cp incremente propage
 		reg_MEM_ER.mem_Q   <= mem_data;           -- Memory output (used in load case)
