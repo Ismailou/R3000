@@ -46,8 +46,11 @@ architecture behavior of risc is
 	-- definition de constantes
 
 	-- definitions de types/soustypes
-
+  type CP_SRC 	 is (CP_SRC_ADR,CP_SRC_NEXT_PC);
+    
 	-- definition des ressources internes
+	signal CPSrc : CP_SRC := CP_SRC_NEXT_PC;
+	
 	-- Registres du pipeline
 	signal reg_EI_DI	: EI_DI;		-- registre pipeline EI/DI
 	signal reg_DI_EX	: DI_EX;		-- registre pipeline DI/EX
@@ -57,6 +60,7 @@ architecture behavior of risc is
 	-- Ressources de l'etage EI
 	signal reg_PC		: ADDR;			-- compteur programme format octet
 	signal ei_next_pc	: PC;				-- pointeur sur prochaine instruction
+	signal ei_pc	: PC;				     -- pointeur sur instruction courrante
 	signal ei_inst		: INST;			-- instruction en sortie du cache instruction
 	signal ei_halt		: std_logic;	-- suspension etage pipeline
 	signal ei_flush	: std_logic;	-- vidange de l'etage
@@ -115,22 +119,26 @@ icache : entity work.memory(behavior)
 -- Incrementation du PC (format mot)
 ei_next_pc <= reg_PC(PC'range)+1;
 
+-- Add multipleser to chose the address of J instructions
+ei_pc <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
+          else ei_next_pc when CPSrc = CP_SRC_NEXT_PC;
+
 ei_halt   <= '0';
 ei_flush  <= '0';
 
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage EI/DI et du PC
-EI: process(CLK,RST)
+EI: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset du PC
 		reg_PC <= PC_DEFL;
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
 		-- Mise a jour PC
-		reg_PC(PC'range)<=ei_next_pc;
+		reg_PC(PC'range)<=ei_pc;
 		-- Mise a jour du registre inter-etage EI/DI
 		reg_EI_DI.pc_next <= ei_next_pc;
 		reg_EI_DI.inst <= ei_inst;
@@ -171,10 +179,10 @@ di_flush <= '0';
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage DI/EX
-DI: process(CLK,RST)
+DI: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset des controle du pipeline
 		reg_DI_EX.ex_ctrl 	<= EX_DEFL;
 		reg_DI_EX.mem_ctrl <= MEM_DEFL;
@@ -230,10 +238,10 @@ ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
 --	l'etage EX
-EX: process(CLK,RST)
+EX: process(CLK,RST,CPSrc)
 begin
 	-- test du reset
-	if (RST='0') then
+	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
 		-- reset des controle du pipeline
 		reg_EX_MEM.mem_ctrl <= MEM_DEFL;
 		reg_EX_MEM.er_ctrl 	<= ER_DEFL;
@@ -243,8 +251,16 @@ begin
 															  
 		-- Mise a jour du registre inter-etage EX/MEM
 		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
+
 		reg_EX_MEM.ual_S    <= ex_alu_s;						            -- resultat ual -- (TODO)
 		reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
+
+		reg_EX_MEM.zero     <= ex_alu_z;
+		
+		-- propagation des signaux de controle de l'etage MEM & ER
+		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
+		reg_EX_MEM.er_ctrl	<= reg_DI_EX.er_ctrl;
+
 		
 		-- affectation sequentielle pour garantir la mise a jour des signal a la fin de cycle
 		if (reg_DI_EX.ex_ctrl.REG_DST = REG_RD) then
@@ -278,7 +294,11 @@ dcache : entity work.memory(behavior)
 			port map ( RST=>RST, CLK=>CLK, RW=>reg_EX_MEM.mem_ctrl.DC_RW, DS=>reg_EX_MEM.mem_ctrl.DC_DS, Signed=>reg_EX_MEM.mem_ctrl.DC_SIGNED, AS=>reg_EX_MEM.mem_ctrl.DC_AS, Ready=>open,
 								Berr=>open, ADR=>reg_EX_MEM.ual_S, D=>reg_EX_MEM.rt, Q=>mem_data );
 
-					
+------------------------------------------------------------------
+-- generate CPSrc signal in case of J instruction
+CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
+         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
+         
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER
 ------------------------------------------------------------------
@@ -322,30 +342,5 @@ er_regd <=  reg_MEM_ER.ual_S when reg_MEM_ER.er_ctrl.REGS_SRCD = ALU_S
 	            
 er_adrw <= reg_MEM_ER.reg_dst;
 		
--- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
--- reg_MEM_ER.er_ctrl.REGS_W;		     
-		            		            
-------------------------------------------------------------------
--- Process Etage ER (ER).
-------------------------------------------------------------------		              
---ER: process(CLK,RST)
---begin
-	-- test du reset
-	--if (RST='0') then
-		-- reset des controle du pipeline
-		--er_regd 	<= (others => '0');
-		--er_reg_w <= '1';
-		--er_adrw  <= (others => '0');
-	
-	-- test du front actif d'horloge
-	--if (CLK'event and CLK=CPU_WR_FRONT) then 
-	            
-	--	er_adrw <= reg_MEM_ER.reg_dst;
-		
-		-- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
-  --  er_reg_w <= reg_MEM_ER.er_ctrl.REGS_W;
-		
-	--end if;
---end process ER;
 
 end behavior;

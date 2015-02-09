@@ -175,7 +175,6 @@ package cpu_package is
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
 		REG_DST 			 : MUX_REG_DST;					-- mux pour rgistre destinataire
 		--BRA_SRC			: std_logic_vector (2 downto 0);
-		--BRANCHEMENT		: std_logic;
 	end record;	
 			
 	-- default EX control
@@ -188,6 +187,8 @@ package cpu_package is
 		DC_RW 			 : std_logic;							-- DataCache signal R/W*
 		DC_AS 			 : std_logic;							-- DataCache signal Address Strobe
 		DC_SIGNED	: std_logic;							-- DataCache operation signee ou non (lecture)
+		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
+		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 		
 	-- default MEM control
@@ -240,6 +241,7 @@ package cpu_package is
 		ual_S				: std_logic_vector (DATA'range);						 -- resultat ual
 		rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
 		reg_dst		: std_logic_vector (REGS'range);						 -- registre destination (MUX_REG_DST)
+		zero     : std_logic;
 		-- === Control ===
 		mem_ctrl : mxMEM;		 -- signaux de control de l'etage MEM
 		er_ctrl 	: mxER;		  -- signaux de control de l'etage ER
@@ -587,18 +589,18 @@ begin
 	  end if;
 	    	                 
 	end if;
-  
+	
+	------------------------------------------------------------------
+  -- Decode of J instruction
+  ------------------------------------------------------------------
+  if (OP=TYPE_R) then
+   -- test operation
+	 if ((OP=J) or (OP=JAL)) then
+	       MEM_ctrl.SAUT <= '1';
+	 end if;
+  end if;
+	
 end control;
 
 end cpu_package;
 
-
-	---------------------------------------------------------------
-	-- Instruction de type I : Immediat restantes
-	
-	-- constant LUI 		 : std_logic_vector := "001111" ; 
-	
-	-- constant BEQ 		 : std_logic_vector := "000100" ;
-	-- constant BNE 		 : std_logic_vector := "000101" ;
-	-- constant BLEZ 		: std_logic_vector := "000110" ;
-	-- constant BGTZ 		: std_logic_vector := "000111" ;		
