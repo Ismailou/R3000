@@ -176,7 +176,7 @@ package cpu_package is
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
 		REG_DST 			 : MUX_REG_DST;					-- mux pour registre destinataire
 		BRA_SRC			  : BRANCHEMENT_SOURCE;
-		SAUT	: std_logic;            -- true if the type of current instruction is J
+		SAUT	       : std_logic;            -- true if the type of current instruction is J
 	end record;	
 			
 	-- default EX control
@@ -584,14 +584,15 @@ begin
 	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 		 end if;
-	
+		 
+	 end if;
+	 
 	 ------------------------------------------------------------------
    -- Signal control Instruction de Type B : Branchement
    ------------------------------------------------------------------	 
   	if (OP=TYPE_B) then
   	  -- not signed operation
   	  DI_ctrl.SIGNED_EXT <= '0';
-		 EX_ctrl.ALU_SIGNED <= '0';
 		 MEM_ctrl.DC_SIGNED <= '0';
 		   
 	   EX_ctrl.ALU_SRCA   <= REGS_QA;
@@ -610,21 +611,25 @@ begin
     	-- set instruction to SUB
     	EX_ctrl.ALU_OP <= ALU_SUB;
     	
-	   if (F=BLTZ) then -- bltz Rx, offset
+	   if (B=BLTZ) then -- bltz Rx, offset
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZ;
-	   elsif (F= BGEZ) then -- bgez Rx, offset
+	     EX_ctrl.ALU_SIGNED <= '1';
+	   elsif (B=BGEZ) then -- bgez Rx, offset
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZ;
-	   elsif (F=BLTZAL) then -- bltzal Rx, offset, R31 = PC+4
+	     EX_ctrl.ALU_SIGNED <= '1';
+	   elsif (B=BLTZAL) then -- bltzal Rx, offset, R31 = PC+4
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZAL;
+	     EX_ctrl.ALU_SIGNED <= '1';
 	     
-	     -- We save PC+4 value in R31 regidter
+	     -- We save PC+4 value in R31 register
 	     EX_ctrl.REG_DST    <= R31;
 	     
 	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 		   
-	   elsif (F=BGEZAL) then -- bgezal Rx, offset, R31 = PC+4
+	   elsif (B=BGEZAL) then -- bgezal Rx, offset, R31 = PC+4
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZAL;
+	     EX_ctrl.ALU_SIGNED <= '1';
 	     
 	     -- We save PC+4 value in R31 regidter
 	     EX_ctrl.REG_DST    <= R31;
@@ -633,8 +638,6 @@ begin
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 	   end if;
 	   
-	 end if;
-	
     end if;
   
 	end if;

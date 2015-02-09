@@ -119,7 +119,7 @@ icache : entity work.memory(behavior)
 -- Affectations dans le domaine combinatoire de l'etage EI
 --
 
-ex_new_pc <= reg_DI_EX.jump_adr; -- 27..2 <= 25..0
+-- ex_new_pc <= reg_DI_EX.jump_adr; -- 27..2 <= 25..0
 --ex_new_pc(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4) <= "0000"; -- reg_DI_EX.pc_next(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4); -- 31..28 
 --ex_new_pc(PCLOW-1 downto 0) <= "00";
 
@@ -242,6 +242,7 @@ ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
 --	l'etage EX
+------------------------------------------------------------------
 EX: process(CLK,RST)
 begin
 	-- test du reset
@@ -274,9 +275,15 @@ begin
 	end if;
 end process EX;
 
--- reg_EX_MEM.reg_dst  <= reg_DI_EX.rd when reg_DI_EX.ex_ctrl.REG_DST = REG_RD else
-		                   -- reg_DI_EX.rt when reg_DI_EX.ex_ctrl.REG_DST = REG_RT else
-		                   -- "11111" ;		    	-- R31
+ex_b_condition <= '1' when (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZ and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZ and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZAL and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZAL and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' )
+                  else '0';
+
+ex_new_pc <= reg_DI_EX.jump_adr when reg_DI_EX.ex_ctrl.SAUT = '1'
+              else reg_DI_EX.imm_ext(PC'length-1 downto 0) when ex_b_condition = '1'
+              else reg_DI_EX.pc_next;
 		                       
 -- ===============================================================
 -- === Etage MEM =================================================
@@ -289,11 +296,6 @@ dcache : entity work.memory(behavior)
 								ACTIVE_FRONT=>L1_FRONT, FILENAME=>DFILE )
 			port map ( RST=>RST, CLK=>CLK, RW=>mem_rw, DS=>mem_ds, Signed=>mem_signed, AS=>mem_as, Ready=>open,
 								Berr=>open, ADR=>mem_adr, D=>(others => '0'), Q=>mem_data );
-
-------------------------------------------------------------------
--- generate CPSrc signal in case of J instruction
--- CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
---         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
          
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER
