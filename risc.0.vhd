@@ -263,7 +263,6 @@ begin
 
 		reg_EX_MEM.ual_S    <= ex_alu_s;						            -- resultat ual -- (TODO)
 		reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
-
 		reg_EX_MEM.zero     <= ex_alu_z;
 		
 		-- propagation des signaux de controle de l'etage MEM & ER
@@ -288,9 +287,15 @@ begin
 end process EX;
 
 ex_b_condition <= '1' when (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZ and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
-                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZ and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
                   (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZAL and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
-                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZAL and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' )
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLEZ and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZ and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGTZ and (not(ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1' ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZAL and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BEQ and (ex_alu_z = '1') ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BNE and (ex_alu_z = '0') )                
                   else '0';
 
 ex_new_pc <= reg_DI_EX.jump_adr when reg_DI_EX.ex_ctrl.SAUT = '1'

@@ -155,7 +155,8 @@ package cpu_package is
 	type MUX_ALU_B 	 is (REGS_QB,IMMD,VAL_DEC);
 	type MUX_REG_DST	is (REG_RD,REG_RT,R31);
 	type MUX_REGS_D	 is (ALU_S,MEM_Q,NextPC);
-  type BRANCHEMENT_SOURCE is (BRANCHEMENT_NONE,BRANCHEMENT_BLTZ,BRANCHEMENT_BGEZ,BRANCHEMENT_BLTZAL,BRANCHEMENT_BGEZAL);
+  type BRANCHEMENT_SOURCE is (BRANCHEMENT_NONE,BRANCHEMENT_BLTZ,BRANCHEMENT_BGEZ,BRANCHEMENT_BLTZAL
+                            ,BRANCHEMENT_BGEZAL,BRANCHEMENT_BEQ,BRANCHEMENT_BNE,BRANCHEMENT_BGTZ,BRANCHEMENT_BLEZ);
     
 	---------------------------------------------------------------
 	-- Definitions des structures de controles des etages
@@ -608,6 +609,31 @@ begin
 	  end if;
 	    	                 
 	end if;
+	
+	-- Branch instruction of type I
+	if ((OP=BEQ) or (OP=BNE) or (OP=BLEZ) or (OP=BGTZ)) then  
+	  -- not signed operation
+  	  DI_ctrl.SIGNED_EXT <= '0';
+		 MEM_ctrl.DC_SIGNED <= '0';
+		   
+	   EX_ctrl.ALU_SRCA   <= REGS_QA;
+	   EX_ctrl.ALU_SRCB   <= REGS_QB; -- change in case of BLEZ and BGTZ (it must be the content of register 0)
+    	EX_ctrl.ALU_OP     <= ALU_SUB;
+    	
+	   if (OP=BEQ) then 
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BEQ;
+	   elsif (OP=BNE) then 
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BNE;
+	   elsif (OP=BLEZ) then
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLEZ;
+	     EX_ctrl.ALU_SIGNED <= '1';   
+	   elsif (OP=BGTZ) then
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGTZ;
+	     EX_ctrl.ALU_SIGNED <= '1';
+	   end if;
+	 
+	 end if;
+	
 	
 	------------------------------------------------------------------
   -- Decode of J instruction
