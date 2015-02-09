@@ -179,7 +179,7 @@ package cpu_package is
 	end record;	
 			
 	-- default EX control
-	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_OPS'low, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low,
+	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_XOR, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low, -- ALU_OPS'low
 											REG_DST=>MUX_REG_DST'low, others=>'0' );
 			
 	-- Structure des signaux de control de l'etage MEM
@@ -238,7 +238,7 @@ package cpu_package is
 		-- === Data ===
 		pc_next 	: std_logic_vector (PC'range);						   -- cp incremente propage
 		ual_S				: std_logic_vector (DATA'range);						 -- resultat ual
-		--rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
+		rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
 		reg_dst		: std_logic_vector (REGS'range);						 -- registre destination (MUX_REG_DST)
 		-- === Control ===
 		mem_ctrl : mxMEM;		 -- signaux de control de l'etage MEM
@@ -457,8 +457,14 @@ begin
 	  end if; 
 	  
 	  -- Ex control signals
-	  EX_ctrl.ALU_SRCA   <= REGS_QA;
-	  EX_ctrl.ALU_SRCB   <= REGS_QB;
+	  if (F=LSR or F=LSL) then
+	    EX_ctrl.ALU_SRCA   <= REGS_QB;
+	    EX_ctrl.ALU_SRCB   <= VAL_DEC;
+	  else 
+	    EX_ctrl.ALU_SRCA   <= REGS_QA;
+	    EX_ctrl.ALU_SRCB   <= REGS_QB;
+	  end if;
+	  
 	  EX_ctrl.REG_DST    <= REG_RD;
 	  
 	  -- ALU opertation signal
@@ -477,10 +483,8 @@ begin
 	  elsif (F=iXOR) then
 	    EX_ctrl.ALU_OP <= ALU_XOR;
 	  elsif (F=LSL) then
-	    EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
 	    EX_ctrl.ALU_OP <= ALU_LSL;
 	  elsif (F=LSR) then
-	    EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
 	    EX_ctrl.ALU_OP <= ALU_LSR;
 	  end if; 
 	  
@@ -523,9 +527,9 @@ begin
 	    EX_ctrl.ALU_OP <= ALU_SLT;
 	  elsif (OP=ANDI) then
 	    EX_ctrl.ALU_OP <= ALU_AND;
-	  elsif (F=ORI) then
+	  elsif (OP=ORI) then
 	    EX_ctrl.ALU_OP <= ALU_OR;
-	  elsif (F=XORI) then
+	  elsif (OP=XORI) then
 	    EX_ctrl.ALU_OP <= ALU_XOR;
 	  end if;
 	  

@@ -142,126 +142,73 @@ Ready <= '1'; -- car pas encore un cache
 --		signaux d'entree, nous sommes obliges de les mettre dans la
 --		liste de sensitivite du process
 P_CACHE: process(CLK,RST,ADR,AS,RW,DS,Signed)
-  variable i_adr : I_ADR ;
-  variable b_adr : B_ADR ;
-  variable addr_aligned : std_logic;
-  variable tmp_Q : std_logic_vector(31 downto 0) := to_stdlogicvector(BIT_VECTOR'(X"FFFFFFFF"));
-begin  
-  -- test du front actif d'horloge
-	if (CLK'event and CLK=ACTIVE_FRONT) then -- rising_edge(CLK)
-    -- When RST
-    if ( RST = not(ACTIVE_FRONT)) then
-      -- RAZ
-      Q <= (others => 'Z');
-      -- LOAD file or reset to memory to '0'
-      if ( STRING'(FILENAME) /= "") then
-        REGS <= LOAD_FILE(FILENAME);
-      else
-        REGS <= (others => (others => (others => '0')));
-      end if;
+ 
+  variable word_ADR : natural; 
+  variable byte_ADR : natural;
+  variable byte_NB : natural;
+  variable counter : natural;
+  variable temp_WR : BYTE;
+  variable i : natural;
+begin
+  -- Test if we have a reset signal
+  if (RST = '0') then
+    if (STRING'(FILENAME) /= "") then
+      REGS <= LOAD_FILE(FILENAME);
+    else
+      REGS <= (others => (others => (others => '0')));
     end if;
-        
-    -- Check alignement (DS)
-      -- extract I_ADR
-      i_adr := ADR(I_ADR'range);
-      b_adr := ADR(B_ADR'range); 
-      case(DS) is
-        when  MEM_8 =>
-          -- any @ match
-          Berr <= '1';
-          addr_aligned := '1';
-        when  MEM_16 =>
-          -- only three offset match
-          if ( b_adr = "00" or b_adr = "01" or b_adr = "10") then
-            Berr <= '1';
-            addr_aligned := '1';
-          else
-            Berr <= '0';
-            addr_aligned := '0';
-          end if;
-        when  MEM_32 | MEM_64 =>
-          -- only one case is possible
-          if ( b_adr = "00") then
-            Berr <= '1';
-            addr_aligned := '1';
-          else
-            Berr <= '0';
-            addr_aligned := '0';
-          end if;       
-        when others =>
-          addr_aligned := '0';
-	   end case;
-	   
-	   
-    -- When WRITE
-    if (AS='1' and addr_aligned='1') then
-			 -- When Write
-			if (RW='0') then
-			  case(DS) is
-          when  MEM_8 =>
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)) <= D(7 downto 0);
-          when  MEM_16 =>
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)) <= D(7 downto 0);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+1) <= D(15 downto 8);
-          when  MEM_32 =>
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)) <= D(7 downto 0);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+1) <= D(15 downto 8);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+2) <= D(23 downto 16);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+3) <= D(31 downto 24);
-          when  MEM_64 =>
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)) <= D(7 downto 0);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+1) <= D(15 downto 8);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+2) <= D(23 downto 16);
-            REGS(conv_integer(i_adr))(conv_integer(b_adr)+3) <= D(31 downto 24);
-            
-            REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)) <= D(7 downto 0);
-            REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+1) <= D(15 downto 8);
-            REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+2) <= D(23 downto 16);
-            REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+3) <= D(31 downto 24);
-          when others =>
-        end case;
-			else -- When READ
-				case(DS) is
-          when  MEM_8 =>
-            tmp_Q(7 downto 0) := REGS(conv_integer(i_adr))(conv_integer(b_adr));
-            if (Signed = '0') then
-            tmp_Q(31 downto 8) := to_stdlogicvector(BIT_VECTOR'(X"000000"));
-            else
-              tmp_Q(31 downto 8) := to_stdlogicvector(BIT_VECTOR'(X"FFFFFF"));
-            end if;
-          when  MEM_16 =>
-            tmp_Q(7 downto 0) := REGS(conv_integer(i_adr))(conv_integer(b_adr));
-            tmp_Q(15 downto 8) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+1);
-            if (Signed = '0') then 
-              tmp_Q(31 downto 16) := to_stdlogicvector(BIT_VECTOR'(X"0000"));
-            else
-              tmp_Q(31 downto 16) := to_stdlogicvector(BIT_VECTOR'(X"FFFF"));
-            end if;
-          when  MEM_32 =>
-            tmp_Q(7 downto 0) := REGS(conv_integer(i_adr))(conv_integer(b_adr));
-            tmp_Q(15 downto 8) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+1);
-            tmp_Q(23 downto 16) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+2);
-            tmp_Q(31 downto 24) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+3);
-          when  MEM_64 =>
-            tmp_Q(7 downto 0) := REGS(conv_integer(i_adr))(conv_integer(b_adr));
-            tmp_Q(15 downto 8) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+1);
-            tmp_Q(23 downto 16) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+2);
-            tmp_Q(31 downto 24) := REGS(conv_integer(i_adr))(conv_integer(b_adr)+3);
-            
-            tmp_Q(7 downto 0) := REGS(conv_integer(i_adr)+1)(conv_integer(b_adr));
-            tmp_Q(15 downto 8) := REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+1);
-            tmp_Q(23 downto 16) := REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+2);
-            tmp_Q(31 downto 24) := REGS(conv_integer(i_adr)+1)(conv_integer(b_adr)+3);
-          when others =>
-            tmp_Q := (others => 'Z');
-        end case;
-        Q <= tmp_Q;
-			end if;
-		else
-		  Berr <= '1';
-    end if;
-    
-  end if;    
+    Q <= (others => 'Z');
+  -- As signal is active   
+  elsif (AS = '1') then
+    if ((DS = MEM_16 and ADR(ADR'right) /= '0') or 
+    (DS = MEM_32 and ADR(ADR'right+1 downto 0) /= "00") or 
+    (DS = MEM_64 and ADR(ADR'right+2 downto 0) /= "000")) then 
+       Berr <= '0';
+     else
+       Berr <= '1';
+       -- select the number of bytes to be read or written according to DS siganl
+       case DS is 
+         when MEM_8  => byte_NB := 1;
+         when MEM_16 => byte_NB := 2;
+         when MEM_32 => byte_NB := 4;
+         when MEM_64 => byte_NB := 8; 
+       end case; 
+       word_ADR := conv_integer(ADR(I_ADR'range));
+       byte_ADR := conv_integer(ADR(B_ADR'range));
+       -- case of read operation  
+       if (RW='1') then 
+         i := 7;
+         for counter in byte_ADR to byte_ADR+byte_NB-1 loop
+           Q(i downto i-7) <= REGS(word_ADR)(counter); 
+           i := i+8;
+         end loop; 
+         -- case of not having reading a total word 
+         if (i < Q'length) then
+           -- We complete by 1 the rest of Q signal 
+           if (signed = '1') then
+             Q (Q'length-1 downto i-7) <= (others => '1');
+           -- We complete by 0 the rest of Q signal
+           else
+             Q(Q'length-1 downto i-7) <= conv_std_logic_vector(0, Q'length-i+7);
+           end if;
+         end if;    
+       -- case of write operation we wait for the CLK's rising edge 
+       elsif (rising_edge(CLK)) then
+         i := 7; 
+         for counter in byte_ADR to byte_ADR+byte_NB-1 loop
+           Q <= conv_std_logic_vector(word_ADR, DBUS_WIDTH); 
+           REGS(word_ADR)(counter) <= D(i downto i-7);
+           i := i+8;
+         end loop;
+       end if; 
+         
+     end if;
+  -- No reset signal and AS is not active 
+  else
+    Q <= (others => 'Z');
+  end if; 
+       
+
 end process P_CACHE;
 
 end behavior;
