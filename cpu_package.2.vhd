@@ -175,6 +175,8 @@ package cpu_package is
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
 		REG_DST 			 : MUX_REG_DST;					-- mux pour rgistre destinataire
 		--BRA_SRC			: std_logic_vector (2 downto 0);
+		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
+		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 			
 	-- default EX control
@@ -187,8 +189,6 @@ package cpu_package is
 		DC_RW 			 : std_logic;							-- DataCache signal R/W*
 		DC_AS 			 : std_logic;							-- DataCache signal Address Strobe
 		DC_SIGNED	: std_logic;							-- DataCache operation signee ou non (lecture)
-		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
-		SAUT	: std_logic;            -- true if the type of current instruction is J
 	end record;	
 		
 	-- default MEM control
@@ -429,6 +429,12 @@ procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 							signal EX_ctrl	: out mxEX;		-- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
 							signal ER_ctrl	: out mxER ) is	-- signaux de controle de l'etage ER
+
+-- local variable used to stop control signals generation in case of J instruction
+-- we must wait for 3 cycle to re-enable control block and generate control signals for 
+-- the jumpped instruction							
+variable j_count : natural range 0 to 4;
+
 begin
 	-- Initialisation
 	DI_ctrl <= DI_DEFL;
@@ -436,72 +442,80 @@ begin
 	MEM_ctrl <= MEM_DEFL;
 	ER_ctrl <= ER_DEFL;
 
-	-- Controle DI : signe-t-on ou non l'extension de la valeur immediate
-	if (	(OP=ADDI) or (OP=SLTI) or (OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or -- to be asked to teacher (SLTI)
-			(OP=LHU) or (OP=SB)	or (OP=SH) or (OP=SW) )then
-		DI_ctrl.SIGNED_EXT <= '1';
-	else
-		DI_ctrl.SIGNED_EXT <= '0';
-	end if;
-	
-  ------------------------------------------------------------------
-  -- Signal control of type R operations
-  ------------------------------------------------------------------	 
-	if (OP=TYPE_R) then
-	  
-	  -- Test signed/unsigned operation
-		if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
-		  EX_ctrl.ALU_SIGNED <= '0';
-		  MEM_ctrl.DC_SIGNED <= '0';
-		else 
-		  EX_ctrl.ALU_SIGNED <= '1';
-		  MEM_ctrl.DC_SIGNED <= '1';
-	  end if; 
-	  
-	  -- Ex control signals
-	  if (F=LSR or F=LSL) then
-	    EX_ctrl.ALU_SRCA   <= REGS_QB;
-	    EX_ctrl.ALU_SRCB   <= VAL_DEC;
-	  else 
-	    EX_ctrl.ALU_SRCA   <= REGS_QA;
-	    EX_ctrl.ALU_SRCB   <= REGS_QB;
-	  end if;
-	  
-	  EX_ctrl.REG_DST    <= REG_RD;
-	  
-	  -- ALU opertation signal
-	  if ((F=ADD) or (F=ADDU)) then
-	    EX_ctrl.ALU_OP <= ALU_ADD;
-	  elsif ((F=SUB) or (F=SUBU)) then
-	    EX_ctrl.ALU_OP <= ALU_SUB;
-	  elsif ((F=SLT) or (F=SLTU)) then
-	    EX_ctrl.ALU_OP <= ALU_SLT;
-	  elsif (F=iOR) then
-	    EX_ctrl.ALU_OP <= ALU_OR;
-	  elsif (F=iAND) then
-	    EX_ctrl.ALU_OP <= ALU_AND;
-	  elsif (F=iNOR) then
-	    EX_ctrl.ALU_OP <= ALU_NOR;
-	  elsif (F=iXOR) then
-	    EX_ctrl.ALU_OP <= ALU_XOR;
-	  elsif (F=LSL) then
-	    EX_ctrl.ALU_OP <= ALU_LSL;
-	  elsif (F=LSR) then
-	    EX_ctrl.ALU_OP <= ALU_LSR;
-	  end if; 
-	  
-	  -- MEM signals for the moment (disabled)
-	  MEM_ctrl.DC_DS     <= MEM_32;
-	  MEM_ctrl.DC_RW     <= '0';
-	  MEM_ctrl.DC_AS     <= '0';
-
-	  -- ER control signals
-	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
-		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
-	                 
-	end if;
   
-  ------------------------------------------------------------------
+  if ( j_count /= 0) then
+    DI_ctrl <= DI_DEFL;
+	  EX_ctrl <= EX_DEFL;
+	  MEM_ctrl <= MEM_DEFL;
+	  ER_ctrl <= ER_DEFL;
+	  
+	  -- increment j_count
+	  j_count := j_count + 1;
+
+	else
+	
+	 -- Controle DI : signe-t-on ou non l'extension de la valeur immediate
+	 if (	(OP=ADDI) or (OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or
+		  	(OP=LHU) or (OP=SB)	or (OP=SH) or (OP=SW) )then
+		  DI_ctrl.SIGNED_EXT <= '1';
+  	else
+		  DI_ctrl.SIGNED_EXT <= '0';
+  	end if;
+	
+   ------------------------------------------------------------------
+   -- Signal control of type R operations
+   ------------------------------------------------------------------	 
+  	if (OP=TYPE_R) then
+	    
+  	  EX_ctrl.ALU_SRCA   <= REGS_QA;
+	   EX_ctrl.ALU_SRCB   <= REGS_QB;
+  	  EX_ctrl.REG_DST    <= REG_RD; 
+	  
+  	  -- MEM signals for the moment (disabled)
+	   MEM_ctrl.DC_DS     <= MEM_32;
+  	  MEM_ctrl.DC_RW     <= '0';
+	   MEM_ctrl.DC_AS     <= '0';
+
+  	  -- ER control signals
+	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+    	ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+		
+   		-- Test signed/unsigned operation
+    	if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
+		    DI_ctrl.SIGNED_EXT <= '1';
+    		  EX_ctrl.ALU_SIGNED <= '1';
+    		  MEM_ctrl.DC_SIGNED <= '1';
+    	else 
+    		  DI_ctrl.SIGNED_EXT <= '0';
+    		  EX_ctrl.ALU_SIGNED <= '0';
+    		  MEM_ctrl.DC_SIGNED <= '0';
+  	  end if; 
+	  
+	   -- ALU opertation signal
+  	  if ((F=ADD) or (F=ADDU)) then
+	      EX_ctrl.ALU_OP <= ALU_ADD;
+  	  elsif ((F=SUB) or (F=SUBU)) then
+	      EX_ctrl.ALU_OP <= ALU_SUB;
+  	  elsif ((F=SLT) or (F=SLTU)) then
+        EX_ctrl.ALU_OP <= ALU_SLT;
+  	  elsif (F=iOR) then
+	      EX_ctrl.ALU_OP <= ALU_OR;
+  	  elsif (F=iAND) then
+	      EX_ctrl.ALU_OP <= ALU_AND;
+  	  elsif (F=iNOR) then
+        EX_ctrl.ALU_OP <= ALU_NOR;
+  	  elsif (F=iXOR) then
+	      EX_ctrl.ALU_OP <= ALU_XOR;
+  	  elsif (F=LSL) then
+	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
+	      EX_ctrl.ALU_OP <= ALU_LSL;
+  	  elsif (F=LSR) then
+	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
+	      EX_ctrl.ALU_OP <= ALU_LSR;
+  	  end if;                
+  	end if;
+  
+    ------------------------------------------------------------------
   -- Signal control of type I operations
   ------------------------------------------------------------------ 
 
@@ -589,16 +603,38 @@ begin
 	  end if;
 	    	                 
 	end if;
+
 	
 	------------------------------------------------------------------
   -- Decode of J instruction
   ------------------------------------------------------------------
-  if (OP=TYPE_R) then
-   -- test operation
-	 if ((OP=J) or (OP=JAL)) then
-	       MEM_ctrl.SAUT <= '1';
-	 end if;
-  end if;
+    if ((OP=J) or (OP=JAL)) then
+      -- increment j_count variable/semaphore
+      j_count := j_count + 1;
+      
+	    -- set signed signal to 0
+	    DI_ctrl.SIGNED_EXT <= '0';
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+	    
+	    -- disable write signals
+	    MEM_ctrl.DC_RW     <= '0';
+	    ER_ctrl.REGS_W     <= '0';
+	    
+	    -- Set saut signal
+	    EX_ctrl.SAUT <= '1';
+	    
+	    -- if JAL then write NextPC to R31 (ra)
+	   if (OP=JAL) then
+	     -- We save PC+4 value in R31 regidter
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+		 end if;
+    end if;
+  
+	end if;
 	
 end control;
 

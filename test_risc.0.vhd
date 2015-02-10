@@ -21,13 +21,13 @@ end test_risc;
 architecture behavior of test_risc is
 
 -- definition des constantes de test
-	constant FILE_I	: string 	:= "Benchs/mythirdasm.bin";
-	constant FILE_D	: string 	:= "Benchs/mysecondasm.bin"; --TOBEREMOVED
+	constant FILE_I	: string 	:= "Benchs/mysecondasm.bin";
+	constant FILE_D	: string 	:= "";
 	constant WFRONT 	: std_logic	:= CPU_WR_FRONT;
 	constant TIMEOUT 	: time 		:= 400 ns; -- timeout de la simulation
 
 -- definition de constantes
-constant clkpulse : Time := 5 ns; -- 1/2 periode horloge
+constant clkpulse : Time := 50 ps; -- 1/2 periode horloge
 
 -- definition de types
 

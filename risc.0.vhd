@@ -46,10 +46,10 @@ architecture behavior of risc is
 	-- definition de constantes
 
 	-- definitions de types/soustypes
-  type CP_SRC 	 is (CP_SRC_ADR,CP_SRC_NEXT_PC);
+  -- type CP_SRC 	 is (CP_SRC_ADR,CP_SRC_NEXT_PC);
     
 	-- definition des ressources internes
-	signal CPSrc : CP_SRC := CP_SRC_NEXT_PC;
+	-- signal CPSrc : CP_SRC := CP_SRC_NEXT_PC;
 	
 	-- Registres du pipeline
 	signal reg_EI_DI	: EI_DI;		-- registre pipeline EI/DI
@@ -84,6 +84,8 @@ architecture behavior of risc is
   signal ex_alu_v   : std_logic; -- overflow
   signal ex_alu_z   : std_logic; -- zero
   signal ex_alu_c   : std_logic; -- carru
+  signal ex_b_condition : std_logic := '0'; -- BRANCHEMENT and ZNV
+  signal ex_new_pc  : PC;
   
 	-- Ressources de l'etage MEM
   signal mem_data     : DATA;
@@ -94,6 +96,7 @@ architecture behavior of risc is
   signal mem_signed	  : std_logic;
   
 	-- Ressources de l'etage ER
+	signal er_pc     : ADDR;
 	signal er_regd		 : DATA;			-- donnees a ecrire dans le banc de registre
 	signal er_adrw		 : REGS;			-- adresse du registre a ecrire dans le banc
 	signal er_reg_w  : std_logic;
@@ -116,12 +119,17 @@ icache : entity work.memory(behavior)
 -- Affectations dans le domaine combinatoire de l'etage EI
 --
 
+ex_new_pc <= reg_DI_EX.jump_adr; -- 27..2 <= 25..0
+--ex_new_pc(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4) <= "0000"; -- reg_DI_EX.pc_next(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4); -- 31..28 
+--ex_new_pc(PCLOW-1 downto 0) <= "00";
+
 -- Incrementation du PC (format mot)
 ei_next_pc <= reg_PC(PC'range)+1;
 
 -- Add multipleser to chose the address of J instructions
-ei_pc <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
-          else ei_next_pc when CPSrc = CP_SRC_NEXT_PC;
+ei_pc <= ex_new_pc when (reg_DI_EX.ex_ctrl.SAUT or ex_b_condition ) = '1'
+          else ei_next_pc;
+            
 
 ei_halt   <= '0';
 ei_flush  <= '0';
@@ -129,16 +137,16 @@ ei_flush  <= '0';
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage EI/DI et du PC
-EI: process(CLK,RST,CPSrc)
+EI: process(CLK,RST)
 begin
 	-- test du reset
-	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
+	if (RST='0') then
 		-- reset du PC
 		reg_PC <= PC_DEFL;
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
 		-- Mise a jour PC
-		reg_PC(PC'range)<=ei_pc;
+		reg_PC(PC'range) <= ei_pc;
 		-- Mise a jour du registre inter-etage EI/DI
 		reg_EI_DI.pc_next <= ei_next_pc;
 		reg_EI_DI.inst <= ei_inst;
@@ -179,10 +187,10 @@ di_flush <= '0';
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage DI/EX
-DI: process(CLK,RST,CPSrc)
+DI: process(CLK,RST)
 begin
 	-- test du reset
-	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
+	if (RST='0') then
 		-- reset des controle du pipeline
 		reg_DI_EX.ex_ctrl 	<= EX_DEFL;
 		reg_DI_EX.mem_ctrl <= MEM_DEFL;
@@ -238,10 +246,10 @@ ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
 --	l'etage EX
-EX: process(CLK,RST,CPSrc)
+EX: process(CLK,RST)
 begin
 	-- test du reset
-	if (RST='0') or CPSrc = CP_SRC_NEXT_PC then
+	if (RST='0') then
 		-- reset des controle du pipeline
 		reg_EX_MEM.mem_ctrl <= MEM_DEFL;
 		reg_EX_MEM.er_ctrl 	<= ER_DEFL;
@@ -296,8 +304,8 @@ dcache : entity work.memory(behavior)
 
 ------------------------------------------------------------------
 -- generate CPSrc signal in case of J instruction
-CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
-         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
+-- CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
+--         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
          
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER
@@ -325,7 +333,6 @@ begin
 		reg_MEM_ER.ual_S   <= reg_EX_MEM.ual_S;   -- ALU result
 		reg_MEM_ER.reg_dst <= reg_EX_MEM.reg_dst; -- registre destination (MUX_REG_DST)
 		reg_MEM_ER.er_ctrl <= reg_EX_MEM.er_ctrl;	-- propagation des signaux de control de l'etage ER
-		
 	end if;
 end process MEM;
 
@@ -333,10 +340,14 @@ end process MEM;
 -- === Etage ER ==================================================
 -- ===============================================================
 
+er_pc(PC'range) <= reg_MEM_ER.pc_next;
+er_pc(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4) <= "0000"; -- reg_DI_EX.pc_next(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4); -- 31..28 
+er_pc(PCLOW-1 downto 0) <= "00";
+
 -- set the data to write on register banc (TODO) (,MEM_Q,NextPC);
 er_regd <=  reg_MEM_ER.ual_S when reg_MEM_ER.er_ctrl.REGS_SRCD = ALU_S
 	          else reg_MEM_ER.mem_Q when reg_MEM_ER.er_ctrl.REGS_SRCD = MEM_Q
-	          else reg_MEM_ER.pc_next when reg_MEM_ER.er_ctrl.REGS_SRCD = NextPC -- NextPC
+	          else er_pc when reg_MEM_ER.er_ctrl.REGS_SRCD = NextPC -- NextPC
 	          else (others => '0');
 
 	            
