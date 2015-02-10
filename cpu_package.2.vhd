@@ -619,6 +619,7 @@ begin
 	   EX_ctrl.ALU_SRCA   <= REGS_QA;
 	   EX_ctrl.ALU_SRCB   <= REGS_QB; -- change in case of BLEZ and BGTZ (it must be the content of register 0)
     	EX_ctrl.ALU_OP     <= ALU_SUB;
+    	EX_ctrl.ALU_SIGNED <= '1';
     	
 	   if (OP=BEQ) then 
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BEQ;
@@ -675,7 +676,8 @@ begin
 		   
 	   EX_ctrl.ALU_SRCA   <= REGS_QA;
 	   EX_ctrl.ALU_SRCB   <= REGS_QB;
-  	  EX_ctrl.REG_DST    <= REG_RD; 
+  	  EX_ctrl.REG_DST    <= REG_RD;
+  	  EX_ctrl.ALU_SIGNED <= '1';
 	  
   	  -- MEM signals for the moment (disabled)
 	   MEM_ctrl.DC_DS     <= MEM_32;
@@ -691,13 +693,10 @@ begin
     	
 	   if (B=BLTZ) then -- bltz Rx, offset
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZ;
-	     EX_ctrl.ALU_SIGNED <= '1';
 	   elsif (B=BGEZ) then -- bgez Rx, offset
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZ;
-	     EX_ctrl.ALU_SIGNED <= '1';
 	   elsif (B=BLTZAL) then -- bltzal Rx, offset, R31 = PC+4
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZAL;
-	     EX_ctrl.ALU_SIGNED <= '1';
 	     
 	     -- We save PC+4 value in R31 register
 	     EX_ctrl.REG_DST    <= R31;
@@ -707,7 +706,6 @@ begin
 		   
 	   elsif (B=BGEZAL) then -- bgezal Rx, offset, R31 = PC+4
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZAL;
-	     EX_ctrl.ALU_SIGNED <= '1';
 	     
 	     -- We save PC+4 value in R31 regidter
 	     EX_ctrl.REG_DST    <= R31;

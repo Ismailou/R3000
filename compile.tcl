@@ -12,8 +12,8 @@ proc c  {} {
     add wave -r -radix hexadecimal sim:/test_risc/*
     run 150ps #reset
 		force -deposit sim:/test_risc/r3k/regf/REGS(1) 10000000000000000000000000000000 0
-    force -deposit sim:/test_risc/r3k/regf/REGS(2) 00000000000000000000000000000001 0
-    force -deposit sim:/test_risc/r3k/regf/REGS(3) 00000000000000000000000000000001 0
+    force -deposit sim:/test_risc/r3k/regf/REGS(2) 11111111111111111111111111111110 0
+    force -deposit sim:/test_risc/r3k/regf/REGS(3) 11111111111111111111111111111100 0
     force -deposit sim:/test_risc/r3k/regf/REGS(4) 00000000000000000000000000000100 0
     force -deposit sim:/test_risc/r3k/regf/REGS(5) 00000000000000000000000000000101 0
     force -deposit sim:/test_risc/r3k/regf/REGS(6) 00000000000000000000000000000110 0

@@ -226,8 +226,8 @@ end process DI;
 -- Appel de procedure ALU 
 AL: alu (ex_alu_a, ex_alu_b, 
           ex_alu_s,
-					ex_alu_v,
 					ex_alu_n,
+					ex_alu_v,
 					ex_alu_z,
 					ex_alu_c,
 					reg_DI_EX.ex_ctrl.ALU_SIGNED,
