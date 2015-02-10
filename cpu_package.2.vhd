@@ -60,6 +60,10 @@ package cpu_package is
 	subtype DATA		is std_logic_vector(CPU_DATA_WIDTH-1 downto 0);
 	subtype REGS		is std_logic_vector(REG_WIDTH-1 downto 0);
 
+  -- constant used as inputs for ALU
+  constant EX_ZERO    : DATA := X"00000000";
+  constant EX_VAL_16  : DATA := X"00000010";
+  
 	-- define default values
 	constant PC_DEFL : ADDR := conv_std_logic_vector(0,ADDR'length);
 
@@ -152,7 +156,7 @@ package cpu_package is
 	---------------------------------------------------------------
 	-- Definition des multiplexeurs dans les etages
 	type MUX_ALU_A 	 is (REGS_QA,REGS_QB,IMMD);
-	type MUX_ALU_B 	 is (REGS_QB,IMMD,VAL_DEC);
+	type MUX_ALU_B 	 is (REGS_QB,IMMD,VAL_DEC,VAL_ZERO,VAL_16);
 	type MUX_REG_DST	is (REG_RD,REG_RT,R31);
 	type MUX_REGS_D	 is (ALU_S,MEM_Q,NextPC);
   type BRANCHEMENT_SOURCE is (BRANCHEMENT_NONE,BRANCHEMENT_BLTZ,BRANCHEMENT_BGEZ,BRANCHEMENT_BLTZAL
@@ -527,7 +531,7 @@ begin
 
 	-- Operations with an immediat value and two registers (rs source and et register destination)
 	if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
-	     or (OP=ORI) or (OP=XORI)) then
+	     or (OP=ORI) or (OP=XORI) or (OP=LUI)) then
 	  
 	  -- Test signed/unsigned operation
 		if ((F=ADDIU) or (F=SLTIU)) then
@@ -564,6 +568,14 @@ begin
 	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- the written value in the register banc is the alu result 
 	                 
+	end if;
+	
+	-- LUI operation control signals
+	if (OP=LUI) then
+	  EX_ctrl.ALU_OP     <= ALU_LSL;
+	  EX_ctrl.ALU_SIGNED <= '0';
+	  EX_ctrl.ALU_SRCA   <= IMMD;
+	  EX_ctrl.ALU_SRCB   <= VAL_16; -- register source to compute the destination
 	end if;
 	
 	-- Memory load and store operations 
@@ -617,20 +629,21 @@ begin
 		 MEM_ctrl.DC_SIGNED <= '0';
 		   
 	   EX_ctrl.ALU_SRCA   <= REGS_QA;
-	   EX_ctrl.ALU_SRCB   <= REGS_QB; -- change in case of BLEZ and BGTZ (it must be the content of register 0)
     	EX_ctrl.ALU_OP     <= ALU_SUB;
     	EX_ctrl.ALU_SIGNED <= '1';
     	
 	   if (OP=BEQ) then 
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BEQ;
+	     EX_ctrl.ALU_SRCA   <= REGS_QB;
 	   elsif (OP=BNE) then 
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BNE;
+	     EX_ctrl.ALU_SRCA   <= REGS_QB;
 	   elsif (OP=BLEZ) then
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLEZ;
-	     EX_ctrl.ALU_SIGNED <= '1';   
+	     EX_ctrl.ALU_SRCB   <= VAL_ZERO;  
 	   elsif (OP=BGTZ) then
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGTZ;
-	     EX_ctrl.ALU_SIGNED <= '1';
+	     EX_ctrl.ALU_SRCB   <= VAL_ZERO;
 	   end if;
 	 
 	 end if;
@@ -675,7 +688,7 @@ begin
 		 MEM_ctrl.DC_SIGNED <= '0';
 		   
 	   EX_ctrl.ALU_SRCA   <= REGS_QA;
-	   EX_ctrl.ALU_SRCB   <= REGS_QB;
+	   EX_ctrl.ALU_SRCB   <= VAL_ZERO;
   	  EX_ctrl.REG_DST    <= REG_RD;
   	  EX_ctrl.ALU_SIGNED <= '1';
 	  

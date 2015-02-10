@@ -236,12 +236,15 @@ AL: alu (ex_alu_a, ex_alu_b,
 -- set UAL Inputs: ex_alu_a in function of (REGS_QA,REGS_QB,IMMD) and ex_alu_b in function of (REGS_QB,IMMD, VAL_DEC)
 ex_alu_a <= reg_DI_EX.rs_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QA
             else reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QB
-            else reg_DI_EX.imm_ext; --TODO (not tested)
-              
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCA = IMMD; --TODO (not tested)
+
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
             -- else ((DATA'range => '0') || reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC -- TOBEASKED
-            else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
-            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD; -- IMMD
+            -- fadhel dirty work : else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
+            else ( EX_ZERO or reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD
+            else EX_ZERO when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_ZERO
+            else EX_VAL_16 when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_16;
                   
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
