@@ -151,10 +151,11 @@ package cpu_package is
 
 	---------------------------------------------------------------
 	-- Definition des multiplexeurs dans les etages
-	type MUX_ALU_A 	 is (REGS_QA,REGS_QB,IMMD);
-	type MUX_ALU_B 	 is (REGS_QB,IMMD,VAL_DEC);
-	type MUX_REG_DST	is (REG_RD,REG_RT,R31);
-	type MUX_REGS_D	 is (ALU_S,MEM_Q,NextPC);
+	type MUX_ALU_A 	   is (REGS_QA,REGS_QB,IMMD,SEND_UNIT_EX,SEND_UNIT_MEM);
+	type MUX_ALU_B 	   is (REGS_QB,IMMD,VAL_DEC,SEND_UNIT_EX,SEND_UNIT_MEM);
+	type MUX_REG_DST	  is (REG_RD,REG_RT,R31);
+	type MUX_REGS_D	   is (ALU_S,MEM_Q,NextPC);
+	type MUX_CTRL_SIG	 is (CTLR_UNIT, DEFT_SIG);
 
 	---------------------------------------------------------------
 	-- Definitions des structures de controles des etages
@@ -178,7 +179,7 @@ package cpu_package is
 	end record;	
 			
 	-- default EX control
-	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_XOR, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low, -- ALU_OPS'low
+	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_OPS'low, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low,
 											REG_DST=>MUX_REG_DST'low, others=>'0' );
 			
 	-- Structure des signaux de control de l'etage MEM
@@ -239,7 +240,7 @@ package cpu_package is
 		-- === Data ===
 		pc_next 	: std_logic_vector (PC'range);						   -- cp incremente propage
 		ual_S				: std_logic_vector (DATA'range);						 -- resultat ual
-		rt				 : std_logic_vector (31 downto 0);					 -- registre rt propage
+		rt				 : std_logic_vector (DATA'range);					 -- registre rt propage
 		reg_dst		: std_logic_vector (REGS'range);						 -- registre destination (MUX_REG_DST)
 		zero     : std_logic;
 		-- === Control ===
@@ -293,6 +294,18 @@ package cpu_package is
 							signal EX_ctrl	: out mxEX;		 -- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
 							signal ER_ctrl	: out mxER );	-- signaux de controle de l'etage ER
+							
+	--  Procedure envoi 
+  --		Permet de positionner les entrees de l'ALU pour donner la bonne valeur 
+  --		commme parametre afin de remedier aux aleas de donnes 
+  procedure envoi ( DI_EX_rs : in std_logic_vector(REGS'range);       -- rs register address in the EX stage
+                    DI_EX_rt : in std_logic_vector(REGS'range);       -- rt register address in the EX stage
+                    EX_MEM_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
+                    EX_MEM_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
+                    MEM_ER_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
+                    MEM_ER_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
+                    signal EX_CTRL_ALU_SRCA	: out MUX_ALU_A;		        -- Control siganl of the ALU SRCA multiplexer 
+	                  signal EX_CTRL_ALU_SRCB	: inout MUX_ALU_B	);      -- Control siganl of the ALU SRCB multiplexer
 
 end cpu_package;
 
@@ -590,17 +603,49 @@ begin
 	    	                 
 	end if;
 	
-	------------------------------------------------------------------
-  -- Decode of J instruction
-  ------------------------------------------------------------------
-  if (OP=TYPE_R) then
-   -- test operation
-	 if ((OP=J) or (OP=JAL)) then
-	       MEM_ctrl.SAUT <= '1';
-	 end if;
-  end if;
-	
 end control;
+
+-- === Procedure envoi =========================================
+--		Permet de positionner les entrees de l'ALU pour donner la bonne valeur 
+--		commme parametre afin de remedier aux aleas de donnes 
+procedure envoi ( DI_EX_rs : in std_logic_vector(REGS'range);       -- rs register address in the EX stage
+                  DI_EX_rt : in std_logic_vector(REGS'range);       -- rt register address in the EX stage
+                  EX_MEM_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
+                  EX_MEM_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
+                  MEM_ER_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
+                  MEM_ER_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
+                  signal EX_CTRL_ALU_SRCA	: out MUX_ALU_A;		        -- Control siganl of the ALU SRCA multiplexer 
+                  signal EX_CTRL_ALU_SRCB	: inout MUX_ALU_B	) is    -- Control siganl of the ALU SRCB multiplexer
+	               
+begin
+  
+  -- Verify that the source register rs is 0, in this case there is no need to send value (always R0=0) 
+  if ( DI_EX_rs /= 0 ) then
+    
+    -- Test data hazard of EX stage for the rs register
+    if (EX_MEM_er_ctrl_RESG_W = '0' and (EX_MEM_reg_dst = DI_EX_rs) ) then 
+      EX_CTRL_ALU_SRCA <= SEND_UNIT_EX;
+    
+    -- Test data hazard of MEM stage for the rs register
+    elsif (MEM_ER_er_ctrl_RESG_W = '0' and (MEM_ER_reg_dst = DI_EX_rs)) then 
+      EX_CTRL_ALU_SRCA <= SEND_UNIT_MEM;
+  end if;
+  
+  -- Testing that the value of rt register is different of 0 and rt is selected as the ALU source parameter
+  elsif ( (EX_CTRL_ALU_SRCB = REGS_QB) and (DI_EX_rt /= 0) ) then
+  
+    --Test data hazard of EX stage for the rt register
+    if (EX_MEM_ER_ctrl_RESG_W = '0' and (EX_MEM_reg_dst = DI_EX_rt)) then 
+      EX_CTRL_ALU_SRCB <= SEND_UNIT_EX;
+    
+    -- Test data hazard of EX stage for the rt register
+    elsif (MEM_ER_ER_ctrl_RESG_W = '0' and (MEM_ER_reg_dst = DI_EX_rt)) then 
+      EX_CTRL_ALU_SRCB <= SEND_UNIT_MEM;
+    end if;
+  end if;  
+
+end envoi;
+
 
 end cpu_package;
 

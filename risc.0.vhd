@@ -87,17 +87,10 @@ architecture behavior of risc is
   
 	-- Ressources de l'etage MEM
   signal mem_data     : DATA;
-  signal mem_adr      : ADDR;
-  signal mem_rw	      : std_logic;
-  signal mem_ds       : MEM_DS;
-  signal mem_as       : std_logic;
-  signal mem_signed	  : std_logic;
   
 	-- Ressources de l'etage ER
 	signal er_regd		 : DATA;			-- donnees a ecrire dans le banc de registre
-	signal er_adrw		 : REGS;			-- adresse du registre a ecrire dans le banc
-	signal er_reg_w  : std_logic;
-
+	
 begin
 
 -- ===============================================================
@@ -120,8 +113,7 @@ icache : entity work.memory(behavior)
 ei_next_pc <= reg_PC(PC'range)+1;
 
 -- Add multipleser to chose the address of J instructions
-ei_pc <= reg_DI_EX.jump_adr when CPSrc = CP_SRC_ADR
-          else ei_next_pc when CPSrc = CP_SRC_NEXT_PC;
+ei_pc <= ei_next_pc;
 
 ei_halt   <= '0';
 ei_flush  <= '0';
@@ -155,7 +147,7 @@ regf : entity work.registres(behavior)
 			generic map ( DBUS_WIDTH=>CPU_DATA_WIDTH, ABUS_WIDTH=>REG_WIDTH, ACTIVE_FRONT=>REG_FRONT )
 			port map ( CLK=>CLK, W=>reg_MEM_ER.er_ctrl.regs_W, RST=>RST, D=>er_regd,
 							 ADR_A=>reg_EI_DI.inst(RS'range), ADR_B=>reg_EI_DI.inst(RT'range),
-							 ADR_W=>er_adrw, QA=>di_qa, QB=>di_qb );
+							 ADR_W=>reg_MEM_ER.reg_dst, QA=>di_qa, QB=>di_qb );
 
 ------------------------------------------------------------------
 -- Affectations dans le domaine combinatoire de l'etage DI
@@ -216,24 +208,38 @@ end process DI;
 ------------------------------------------------------------------
 
 -- Appel de procedure ALU 
-AL: alu (ex_alu_a, ex_alu_b, 
+AL: alu ( ex_alu_a, ex_alu_b, 
           ex_alu_s,
 					ex_alu_v,
 					ex_alu_n,
 					ex_alu_z,
 					ex_alu_c,
 					reg_DI_EX.ex_ctrl.ALU_SIGNED,
-					reg_DI_EX.ex_ctrl.ALU_OP);
+					reg_DI_EX.ex_ctrl.ALU_OP );
+
+-- Appel de procedure envoi					
+-- env: envoi ( reg_DI_EX.rs,
+             -- reg_DI_EX.rt,
+             -- reg_EX_MEM.er_ctrl.REGS_W,
+             -- reg_EX_MEM.reg_dst,             
+             -- reg_MEM_ER.er_ctrl.REGS_W,
+             -- reg_MEM_ER.reg_dst,             
+             -- reg_DI_EX.ex_ctrl.ALU_SRCA,
+	           -- reg_DI_EX.ex_ctrl.ALU_SRCB	);
 
 -- set UAL Inputs: ex_alu_a in function of (REGS_QA,REGS_QB,IMMD) and ex_alu_b in function of (REGS_QB,IMMD, VAL_DEC)
 ex_alu_a <= reg_DI_EX.rs_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QA
             else reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QB
-            else reg_DI_EX.imm_ext; --TODO (not tested)
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCA = IMMD
+            else reg_EX_MEM.ual_S when reg_DI_EX.ex_ctrl.ALU_SRCA = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
+            else er_regd when reg_DI_EX.ex_ctrl.ALU_SRCA = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
               
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
             -- else ((DATA'range => '0') || reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC -- TOBEASKED
             else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
-            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD; -- IMMD
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD  -- IMMD
+            else reg_EX_MEM.ual_S when reg_DI_EX.ex_ctrl.ALU_SRCB = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
+            else er_regd when reg_DI_EX.ex_ctrl.ALU_SRCB = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
                   
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
@@ -252,7 +258,7 @@ begin
 		-- Mise a jour du registre inter-etage EX/MEM
 		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
 
-		reg_EX_MEM.ual_S    <= ex_alu_s;						            -- resultat ual -- (TODO)
+		reg_EX_MEM.ual_S    <= ex_alu_s;			      -- resultat ual -- (TODO)
 		reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
 
 		reg_EX_MEM.zero     <= ex_alu_z;
@@ -311,14 +317,6 @@ begin
 	
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then 
-		
-		-- set memory control signals
-		-- mem_rw     <= reg_EX_MEM.mem_ctrl.DC_RW;
-		-- mem_adr    <= reg_EX_MEM.ual_S;
-		-- mem_as     <= reg_EX_MEM.mem_ctrl.DC_AS;
-		-- mem_ds     <= reg_EX_MEM.mem_ctrl.DC_DS;
-		-- mem_signed <= reg_EX_MEM.mem_ctrl.DC_SIGNED;
-			
 		-- setting contorl signals of MEM_ER etage
 		reg_MEM_ER.pc_next <= reg_EX_MEM.pc_next; -- cp incremente propage
 		reg_MEM_ER.mem_Q   <= mem_data;           -- Memory output (used in load case)
@@ -338,9 +336,6 @@ er_regd <=  reg_MEM_ER.ual_S when reg_MEM_ER.er_ctrl.REGS_SRCD = ALU_S
 	          else reg_MEM_ER.mem_Q when reg_MEM_ER.er_ctrl.REGS_SRCD = MEM_Q
 	          else reg_MEM_ER.pc_next when reg_MEM_ER.er_ctrl.REGS_SRCD = NextPC -- NextPC
 	          else (others => '0');
-
 	            
-er_adrw <= reg_MEM_ER.reg_dst;
-		
 
 end behavior;
