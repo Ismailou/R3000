@@ -295,6 +295,12 @@ package cpu_package is
 	procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 							F : in std_logic_vector(FCODE'length-1 downto 0);
 							B : in std_logic_vector(BCODE'length-1 downto 0);
+							b_condition : in std_logic;
+							signal ei_flush : out std_logic;
+	            signal di_flush : out std_logic;
+	            signal ex_flush : out std_logic;
+							j_counter  : in std_logic_vector(1 downto 0);
+							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		 -- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		 -- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
@@ -431,43 +437,41 @@ end alu;
 procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 							F : in std_logic_vector(FCODE'length-1 downto 0);
 							B : in std_logic_vector(BCODE'length-1 downto 0);
+							b_condition : in std_logic;
+							signal ei_flush : out std_logic;
+	            signal di_flush : out std_logic;
+	            signal ex_flush : out std_logic;
+							j_counter  : in std_logic_vector(1 downto 0);
+							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		-- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		-- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
 							signal ER_ctrl	: out mxER ) is	-- signaux de controle de l'etage ER
 
--- local variable used to stop control signals generation in case of J instruction
--- we must wait for 3 cycle to re-enable control block and generate control signals for 
--- the jumpped instruction							
-variable j_count : natural range 0 to 4;
-
 begin
 	-- Initialisation
-	DI_ctrl <= DI_DEFL;
-	EX_ctrl <= EX_DEFL;
+	DI_ctrl  <= DI_DEFL;
+	EX_ctrl  <= EX_DEFL;
 	MEM_ctrl <= MEM_DEFL;
-	ER_ctrl <= ER_DEFL;
-
-  
-  if ( j_count /= 0) then
-    DI_ctrl <= DI_DEFL;
-	  EX_ctrl <= EX_DEFL;
-	  MEM_ctrl <= MEM_DEFL;
-	  ER_ctrl <= ER_DEFL;
+	ER_ctrl  <= ER_DEFL;
+  ei_flush <= '0';
+	di_flush <= '0';
+	ex_flush <= '0';
+	    
+  -- global if to check J or B instruction is alerady fetched and decoded
+  if ( j_counter /= "00" or b_condition = '1') then	
+	  if ( b_condition = '1') then
+	    ei_flush <= '1';
+	    di_flush <= '1';
+	    ex_flush <= '1';
+	  else
+	   -- increment j_count
+	   j_increment <= '1';
+	  end if;
+	else	 
+    -- increment j_count
+	  j_increment <= '0';
 	  
-	  -- increment j_count
-	  j_count := j_count + 1;
-	  
-	else
-	
-	 -- Controle DI : signe-t-on ou non l'extension de la valeur immediate
-	 if (	(OP=ADDI) or (OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or
-		  	(OP=LHU) or (OP=SB)	or (OP=SH) or (OP=SW) )then
-		  DI_ctrl.SIGNED_EXT <= '1';
-  	else
-		  DI_ctrl.SIGNED_EXT <= '0';
-  	end if;	 
-
   ------------------------------------------------------------------
   -- Signal control of type R operations
   ------------------------------------------------------------------	 
@@ -524,14 +528,15 @@ begin
 		ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
 	                 
 	end if;
-  
-  ------------------------------------------------------------------
+	
+	
+	------------------------------------------------------------------
   -- Signal control of type I operations
   ------------------------------------------------------------------ 
 
 	-- Operations with an immediat value and two registers (rs source and et register destination)
 	if ((OP=ADDI) or (OP=ADDIU) or (OP=SLTI) or (OP=SLTIU) or (OP=ANDI)
-	     or (OP=ORI) or (OP=XORI) or (OP=LUI)) then
+	     or (OP=ORI) or (OP=XORI)) then
 	  
 	  -- Test signed/unsigned operation
 		if ((F=ADDIU) or (F=SLTIU)) then
@@ -634,10 +639,10 @@ begin
     	
 	   if (OP=BEQ) then 
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BEQ;
-	     EX_ctrl.ALU_SRCA   <= REGS_QB;
+	     EX_ctrl.ALU_SRCB   <= REGS_QB;
 	   elsif (OP=BNE) then 
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BNE;
-	     EX_ctrl.ALU_SRCA   <= REGS_QB;
+	     EX_ctrl.ALU_SRCB   <= REGS_QB;
 	   elsif (OP=BLEZ) then
 	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLEZ;
 	     EX_ctrl.ALU_SRCB   <= VAL_ZERO;  
@@ -647,27 +652,27 @@ begin
 	   end if;
 	 
 	 end if;
-	
+	 
 	
 	------------------------------------------------------------------
   -- Decode of J instruction
   ------------------------------------------------------------------
     if ((OP=J) or (OP=JAL)) then
       -- increment j_count variable/semaphore
-      j_count := j_count + 1;
+      j_increment <= '1';
       
 	    -- set signed signal to 0
 	    DI_ctrl.SIGNED_EXT <= '0';
 		  EX_ctrl.ALU_SIGNED <= '0';
-		  MEM_ctrl.DC_SIGNED <= '0';
-	    
+		  MEM_ctrl.DC_SIGNED <= '0';    
+		  
 	    -- disable write signals
 	    MEM_ctrl.DC_RW     <= '0';
-	    ER_ctrl.REGS_W     <= '0';
-	    
+	    ER_ctrl.REGS_W     <= '0'; 
+	       
 	    -- Set saut signal
-	    EX_ctrl.SAUT <= '1';
-	    
+	    EX_ctrl.SAUT <= '1';   
+	     
 	    -- if JAL then write NextPC to R31 (ra)
 	   if (OP=JAL) then
 	     -- We save PC+4 value in R31 regidter
@@ -677,9 +682,9 @@ begin
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 		 end if;
 		 
-	 end if;
+	  end if;
 	 
-	 ------------------------------------------------------------------
+	------------------------------------------------------------------
    -- Signal control Instruction de Type B : Branchement
    ------------------------------------------------------------------	 
   	if (OP=TYPE_B) then
