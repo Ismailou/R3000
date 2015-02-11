@@ -300,6 +300,7 @@ package cpu_package is
 	            signal di_flush : out std_logic;
 	            signal ex_flush : out std_logic;
 							j_counter  : in std_logic_vector(1 downto 0);
+							signal di_halt : in std_logic;
 							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		 -- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		 -- signaux de controle de l'etage EX
@@ -442,6 +443,7 @@ procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 	            signal di_flush : out std_logic;
 	            signal ex_flush : out std_logic;
 							j_counter  : in std_logic_vector(1 downto 0);
+							signal di_halt : in std_logic;
 							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		-- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		-- signaux de controle de l'etage EX
@@ -458,8 +460,9 @@ begin
 	di_flush <= '0';
 	ex_flush <= '0';
 	    
-  -- global if to check J or B instruction is alerady fetched and decoded
-  if ( j_counter /= "00" or b_condition = '1') then	
+  -- global control to check J or B instruction is alerady fetched and decoded
+  -- and if we must halt DI stage
+  if ( j_counter /= "00" or b_condition = '1' or di_halt = '1') then	
 	  if ( b_condition = '1') then
 	    ei_flush <= '1';
 	    di_flush <= '1';
@@ -468,6 +471,7 @@ begin
 	   -- increment j_count
 	   j_increment <= '1';
 	  end if;
+	  -- else if di_halt do nothing because signal alerady set to default in initialization step
 	else	 
     -- increment j_count
 	  j_increment <= '0';
