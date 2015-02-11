@@ -151,12 +151,13 @@ package cpu_package is
 
 	---------------------------------------------------------------
 	-- Definition des multiplexeurs dans les etages
-	type MUX_ALU_A 	   is (REGS_QA,REGS_QB,IMMD,SEND_UNIT_EX,SEND_UNIT_MEM);
-	type MUX_ALU_B 	   is (REGS_QB,IMMD,VAL_DEC,SEND_UNIT_EX,SEND_UNIT_MEM);
-	type MUX_REG_DST	  is (REG_RD,REG_RT,R31);
-	type MUX_REGS_D	   is (ALU_S,MEM_Q,NextPC);
-	type MUX_CTRL_SIG	 is (CTLR_UNIT, DEFT_SIG);
-
+	type MUX_ALU_A 	    is (REGS_QA,REGS_QB,IMMD);
+	type MUX_ALU_B 	    is (REGS_QB,IMMD,VAL_DEC);
+	type MUX_REG_DST	   is (REG_RD,REG_RT,R31);
+	type MUX_REGS_D	    is (ALU_S,MEM_Q,NextPC);
+  type MUX_ALU_A_SEND is (SRC_MUX_ALU_A,SEND_UNIT_EX,SEND_UNIT_MEM);
+  type MUX_ALU_B_SEND is (SRC_MUX_ALU_B,SEND_UNIT_EX,SEND_UNIT_MEM);
+    
 	---------------------------------------------------------------
 	-- Definitions des structures de controles des etages
 
@@ -227,7 +228,7 @@ package cpu_package is
 		jump_adr		: std_logic_vector (JADR'RANGE);						-- champ adresse de sauts
 		rs_read			: std_logic_vector (DATA'range);						-- donnee du registre lu rs
 		rt_read			: std_logic_vector (DATA'range);						-- donnee du registre lu rt
-		--code_op			: std_logic_vector (OPCODE'length-1 downto 0);	-- code op
+		code_op			: std_logic_vector (OPCODE'length-1 downto 0);	-- code op
 		--code_fonction	: std_logic_vector (FCODE'length-1 downto 0);	-- code fonction
 		-- === Control ===
 		ex_ctrl			: mxEX;		 -- signaux de control de l'etage EX
@@ -304,9 +305,19 @@ package cpu_package is
                     EX_MEM_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
                     MEM_ER_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
                     MEM_ER_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
-                    signal EX_CTRL_ALU_SRCA	: out MUX_ALU_A;		        -- Control siganl of the ALU SRCA multiplexer 
-	                  signal EX_CTRL_ALU_SRCB	: inout MUX_ALU_B	);      -- Control siganl of the ALU SRCB multiplexer
-
+                    EX_CTRL_ALU_SRCB	: in MUX_ALU_B;	                 -- Control siganl of the ALU SRCB multiplexer (to ensure that rt is used as UAL entries)
+                    signal ALU_SEND_SRCA	: out MUX_ALU_A_SEND;		      -- Control siganl of the ALU source multiplexer 
+                    signal ALU_SEND_SRCB	: out MUX_ALU_B_SEND	);      -- Control siganl of the ALU source multiplexer
+  
+  --  Procedure de detection des aleas 
+  --  Permet de detecter et resoudre les aleas due a une instruction de chargement   
+  --  suivie d'une instruction de type R utilisant la donnee extraite de la memoire
+  procedure detection_alea ( EI_DI_OP : in std_logic_vector(OPCODE'length-1 downto 0);  -- Operation code in the DI stage
+                             DI_EX_OP : in std_logic_vector(OPCODE'length-1 downto 0);  -- Operation code in the EX stage
+                             EI_DI_rs : in std_logic_vector(REGS'range);  -- register source rs in the DI stage (ALU source of instructions)
+                             EI_DI_rt : in std_logic_vector(REGS'range);  -- register source rt in the DI stage (ALU source of R instructions)
+                             DI_EX_rt : in std_logic_vector(REGS'range);  -- register source rt in the EX stage (dst register of LW instructions)
+                             signal DFLT_CTRL_SEG : out std_logic ); 
 end cpu_package;
 
 -- -----------------------------------------------------------------------------
@@ -528,7 +539,7 @@ begin
   	  end if;                
   	end if;
   
-    ------------------------------------------------------------------
+  ------------------------------------------------------------------
   -- Signal control of type I operations
   ------------------------------------------------------------------ 
 
@@ -660,8 +671,9 @@ procedure envoi ( DI_EX_rs : in std_logic_vector(REGS'range);       -- rs regist
                   EX_MEM_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
                   MEM_ER_er_ctrl_RESG_W : in std_logic;             -- Write signal for the register banc in the EX_MEM pipeline register
                   MEM_ER_reg_dst : in std_logic_vector(REGS'range); -- The register banc's write address in the EX_MEM pipeline register
-                  signal EX_CTRL_ALU_SRCA	: out MUX_ALU_A;		        -- Control siganl of the ALU SRCA multiplexer 
-                  signal EX_CTRL_ALU_SRCB	: inout MUX_ALU_B	) is    -- Control siganl of the ALU SRCB multiplexer
+                  EX_CTRL_ALU_SRCB	: in MUX_ALU_B;                  -- Control siganl of the ALU SRCB multiplexer (to ensure that rt is used as UAL entries)
+                  signal ALU_SEND_SRCA	: out MUX_ALU_A_SEND;		      -- Control siganl of the ALU source multiplexer 
+                  signal ALU_SEND_SRCB	: out MUX_ALU_B_SEND	) is    -- Control siganl of the ALU source multiplexer
 	               
 begin
   
@@ -669,29 +681,55 @@ begin
   if ( DI_EX_rs /= 0 ) then
     
     -- Test data hazard of EX stage for the rs register
-    if (EX_MEM_er_ctrl_RESG_W = '0' and (EX_MEM_reg_dst = DI_EX_rs) ) then 
-      EX_CTRL_ALU_SRCA <= SEND_UNIT_EX;
+    if ( (EX_MEM_er_ctrl_RESG_W = '0') and (EX_MEM_reg_dst = DI_EX_rs) ) then 
+      ALU_SEND_SRCA <= SEND_UNIT_EX;
     
     -- Test data hazard of MEM stage for the rs register
-    elsif (MEM_ER_er_ctrl_RESG_W = '0' and (MEM_ER_reg_dst = DI_EX_rs)) then 
-      EX_CTRL_ALU_SRCA <= SEND_UNIT_MEM;
+    elsif ( (MEM_ER_er_ctrl_RESG_W = '0') and (MEM_ER_reg_dst = DI_EX_rs)) then 
+      ALU_SEND_SRCA <= SEND_UNIT_MEM;
+    else
+      ALU_SEND_SRCA <= SRC_MUX_ALU_A;
   end if;
   
   -- Testing that the value of rt register is different of 0 and rt is selected as the ALU source parameter
   elsif ( (EX_CTRL_ALU_SRCB = REGS_QB) and (DI_EX_rt /= 0) ) then
   
     --Test data hazard of EX stage for the rt register
-    if (EX_MEM_ER_ctrl_RESG_W = '0' and (EX_MEM_reg_dst = DI_EX_rt)) then 
-      EX_CTRL_ALU_SRCB <= SEND_UNIT_EX;
+    if ( (EX_MEM_ER_ctrl_RESG_W = '0') and (EX_MEM_reg_dst = DI_EX_rt)) then 
+      ALU_SEND_SRCB <= SEND_UNIT_EX;
     
     -- Test data hazard of EX stage for the rt register
-    elsif (MEM_ER_ER_ctrl_RESG_W = '0' and (MEM_ER_reg_dst = DI_EX_rt)) then 
-      EX_CTRL_ALU_SRCB <= SEND_UNIT_MEM;
+    elsif ( (MEM_ER_ER_ctrl_RESG_W = '0') and (MEM_ER_reg_dst = DI_EX_rt)) then 
+      ALU_SEND_SRCB <= SEND_UNIT_MEM;
+    else
+      ALU_SEND_SRCB <= SRC_MUX_ALU_B;
     end if;
   end if;  
 
 end envoi;
 
+-- === Procedure de detection des aleas =========================================
+--    Permet de detecter et resoudre les aleas due a une instruction de chargement   
+--    suivie d'une instruction de type R utilisant la donnee extraite de la memoire
+procedure detection_alea ( EI_DI_OP : in std_logic_vector(OPCODE'length-1 downto 0);  -- Operation code in the DI stage
+                           DI_EX_OP : in std_logic_vector(OPCODE'length-1 downto 0);  -- Operation code in the EX stage
+                           EI_DI_rs : in std_logic_vector(REGS'range);  -- register source rs in the DI stage (ALU source of instructions)
+                           EI_DI_rt : in std_logic_vector(REGS'range);  -- register source rt in the DI stage (ALU source of R instructions)
+                           DI_EX_rt : in std_logic_vector(REGS'range);  -- register source rt in the EX stage (dst register of LW instructions)
+                           signal DFLT_CTRL_SEG : out std_logic ) is 
+begin
+
+  -- Test a load instruction followed by a a R instruction
+  if (EI_DI_OP = TYPE_R and ((DI_EX_OP=LB) or (DI_EX_OP=LH) or (DI_EX_OP=LW) or (DI_EX_OP=LBU) or (DI_EX_OP=LHU))) then
+    -- Test the use of the same register as source and destination in the R and load instructions
+    if ((EI_DI_rs = DI_EX_rt) or (EI_DI_rt = DI_EX_rt)) then
+      DFLT_CTRL_SEG <= '1';
+    else
+      DFLT_CTRL_SEG <= '0';
+    end if;  
+  end if;          
+                          
+end detection_alea;
 
 end cpu_package;
 

@@ -53,16 +53,16 @@ entity memory is
 	-- definition des entrees/sorties
 	port 	(
 		-- signaux de controle du cache
-		RST			  : in std_logic;	-- actifs a l'etat bas
+		RST			: in std_logic;	-- actifs a l'etat bas
 		CLK,RW		: in std_logic;	-- R/W*
-		DS				: in MEM_DS;		-- acces octet, demi-mot, mot, deux mots.
+		DS				: in MEM_DS;		-- acces octet, demi-mot, mot...
 		Signed		: in std_logic;	-- extension de signe
 		AS				: in std_logic;	-- Address Strobe (sorte de CS*)
 		Ready			: out std_logic;	-- indicateur HIT/MISS
-		Berr			 : out std_logic;	-- bus error (acces non aligne par exemple), active low
+		Berr			: out std_logic;	-- bus error (acces non aligne par exemple), active low
 
 		-- bus d'adresse du cache
-		ADR			  : in std_logic_vector(ABUS_WIDTH-1 downto 0);
+		ADR			: in std_logic_vector(ABUS_WIDTH-1 downto 0);
 
 		-- Ports entree/sortie du cache
 		D				: in std_logic_vector(DBUS_WIDTH-1 downto 0);
@@ -74,18 +74,18 @@ end memory;
 architecture behavior of memory is
 
 	-- definition de constantes
-	constant BITS_FOR_BYTES : natural := 8 ; -- nb bits adr pour acceder aux octets d'un mot
-	constant BITS_FOR_WORDS : natural := 32 ; -- nb bits adr pour acceder aux mots du cache
-	constant BYTES_PER_WORD : natural := 4 ; -- nombre d'octets par mot
+	constant BITS_FOR_BYTES : natural := log2(DBUS_WIDTH/8) ; -- nb bits adr pour acceder aux octets d'un mot
+	constant BITS_FOR_WORDS : natural := log2(MEM_SIZE); -- nb bits adr pour acceder aux mots du cache
+	constant BYTES_PER_WORD : natural := DBUS_WIDTH/8; -- nombre d'octets par mot
 
 	-- definitions de types (index type default is integer)
-	subtype BYTE is std_logic_vector(BITS_FOR_BYTES-1 downto 0); -- definition d'un octet
+	subtype BYTE is std_logic_vector(7 downto 0); -- definition d'un octet
 	type WORD is array (BYTES_PER_WORD-1 downto 0) of BYTE; -- definition d'un mot composé d'octets
 
 	type FILE_REGS is array (MEM_SIZE-1 downto 0) of WORD;
-	subtype I_ADR is std_logic_vector(log2(MEM_SIZE)+2-1 downto 2); -- internal ADR au format mot du cache
+	subtype I_ADR is std_logic_vector(BITS_FOR_WORDS+BITS_FOR_BYTES-1 downto BITS_FOR_BYTES); -- internal ADR au format mot du cache
 
-	subtype B_ADR is std_logic_vector(1 downto 0); -- byte ADR pour manipuler les octets dans le mot
+	subtype B_ADR is std_logic_vector(BITS_FOR_BYTES-1 downto 0); -- byte ADR pour manipuler les octets dans le mot
 	subtype byte_adr is natural range 0 to 1; -- manipulation d'octets dans les mots
 
 	-- definition de la fonction de chargement d'un fichier
@@ -111,9 +111,9 @@ architecture behavior of memory is
 			index:=index+1;
 		end loop;
 		-- test si index a bien parcouru toute la memoire
---		if (index < MEM_SIZE) then
---			temp_REGS(index to MEM_SIZE-1):=(others => (others => (others => '0')));
---		end if;
+		if (index < MEM_SIZE) then
+			temp_REGS(MEM_SIZE-1 downto index) := (others => (others => (others => '0')));
+		end if;
 		-- renvoi du resultat
 		return temp_REGS;
 	end LOAD_FILE;
@@ -186,10 +186,10 @@ begin
          if (i < Q'length) then
            -- We complete by 1 the rest of Q signal 
            if (signed = '1') then
-             Q (Q'length-1 downto i-7) <= (others => '1');
+             Q (Q'length-1 downto i-7) <= (others => REGS(word_ADR)(byte_ADR+byte_NB-1)(7));
            -- We complete by 0 the rest of Q signal
            else
-             Q(Q'length-1 downto i-7) <= conv_std_logic_vector(0, Q'length-i+7);
+             Q(Q'length-1 downto i-7) <= (others => '0');
            end if;
          end if;    
        -- case of write operation we wait for the CLK's rising edge 

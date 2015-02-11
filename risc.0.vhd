@@ -52,47 +52,51 @@ architecture behavior of risc is
 	-- signal CPSrc : CP_SRC := CP_SRC_NEXT_PC;
 	
 	-- Registres du pipeline
-	signal reg_EI_DI	: EI_DI;		-- registre pipeline EI/DI
-	signal reg_DI_EX	: DI_EX;		-- registre pipeline DI/EX
+	signal reg_EI_DI	 : EI_DI;		-- registre pipeline EI/DI
+	signal reg_DI_EX	 : DI_EX;		-- registre pipeline DI/EX
 	signal reg_EX_MEM	: EX_MEM;	-- registre pipeline EX/MEM
 	signal reg_MEM_ER	: MEM_ER;	-- registre pipeline MEM/ER
 
 	-- Ressources de l'etage EI
-	signal reg_PC		: ADDR;			-- compteur programme format octet
+	signal reg_PC		   : ADDR;			-- compteur programme format octet
 	signal ei_next_pc	: PC;				-- pointeur sur prochaine instruction
-	signal ei_pc	: PC;				     -- pointeur sur instruction courrante
-	signal ei_inst		: INST;			-- instruction en sortie du cache instruction
-	signal ei_halt		: std_logic;	-- suspension etage pipeline
-	signal ei_flush	: std_logic;	-- vidange de l'etage
+	signal ei_pc	     : PC;				     -- pointeur sur instruction courrante
+	signal ei_inst		  : INST;			-- instruction en sortie du cache instruction
+	signal ei_halt		  : std_logic;	-- suspension etage pipeline
+	signal ei_flush	  : std_logic;	-- vidange de l'etage
 
 	-- Ressources de l'etage DI
-	signal di_qa			: DATA;			-- sortie QA du banc de registres
-	signal di_qb			: DATA; 			-- sortie QB du banc de registres
-	signal di_imm_ext		: DATA;			-- valeur immediate etendue
-	signal di_ctrl_di		: mxDI;			-- signaux de controle de l'etage DI
-	signal di_ctrl_ex		: mxEX;			-- signaux de controle de l'etage EX
-	signal di_ctrl_mem	: mxMEM;			-- signaux de controle de l'etage MEM
-	signal di_ctrl_er		: mxER;			-- signaux de controle de l'etage ER
-	signal di_halt			: std_logic;	-- suspension etage pipeline
-	signal di_flush		: std_logic;	-- vidange de l'etage
+	signal di_qa			     : DATA;			-- sortie QA du banc de registres
+	signal di_qb			     : DATA; 			-- sortie QB du banc de registres
+	signal di_imm_ext		 : DATA;			-- valeur immediate etendue
+	signal di_ctrl_di		 : mxDI;			-- signaux de controle de l'etage DI
+	signal di_ctrl_ex		 : mxEX;			-- signaux de controle de l'etage EX
+	signal di_ctrl_mem	 : mxMEM;			-- signaux de controle de l'etage MEM
+	signal di_ctrl_er		 : mxER;			-- signaux de controle de l'etage ER
+	signal di_halt			   : std_logic;	-- suspension etage pipeline
+	signal di_flush		   : std_logic;	-- vidange de l'etage
 
 	-- Ressources de l'etage EX
-	signal ex_alu_a   : DATA;   -- Enty A of ALU
-  signal ex_alu_b   : DATA;   -- Enty B of ALU
-  signal ex_alu_s   : DATA;   -- Output S of ALU
-  signal ex_alu_n   : std_logic; -- negative output signal of ALU
-  signal ex_alu_v   : std_logic; -- overflow
-  signal ex_alu_z   : std_logic; -- zero
-  signal ex_alu_c   : std_logic; -- carru
+	signal ex_alu_a       : DATA;   -- Enty A of ALU
+  signal ex_alu_b       : DATA;   -- Enty B of ALU
+  signal ex_send_alu_a  : DATA;   
+  signal ex_send_alu_b  : DATA;   
+  signal ex_alu_s       : DATA;   -- Output S of ALU
+  signal ex_alu_n       : std_logic; -- negative output signal of ALU
+  signal ex_alu_v       : std_logic; -- overflow
+  signal ex_alu_z       : std_logic; -- zero
+  signal ex_alu_c       : std_logic; -- carru
   signal ex_b_condition : std_logic := '0'; -- BRANCHEMENT and ZNV
-  signal ex_new_pc  : PC;
+  signal ex_new_pc      : PC;
+  signal ex_send_ctrl_a : MUX_ALU_A_SEND; -- Control signal of the ALU_A source generate by the sending unit
+  signal ex_send_ctrl_b : MUX_ALU_B_SEND; -- Control signal of the ALU_B source generate by the sending unit
   
 	-- Ressources de l'etage MEM
   signal mem_data     : DATA;
   
 	-- Ressources de l'etage ER
 	signal er_pc     : ADDR;
-	signal er_regd		 : DATA;			-- donnees a ecrire dans le banc de registre
+	signal er_regd   : DATA;			-- donnees a ecrire dans le banc de registre
 	
 begin
 
@@ -137,11 +141,14 @@ begin
 		reg_PC <= PC_DEFL;
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
-		-- Mise a jour PC
-		reg_PC(PC'range) <= ei_pc;
-		-- Mise a jour du registre inter-etage EI/DI
-		reg_EI_DI.pc_next <= ei_next_pc;
-		reg_EI_DI.inst <= ei_inst;
+		
+		if (di_halt = '0') then
+		  -- Mise a jour PC
+		  reg_PC(PC'range) <= ei_pc;
+		  -- Mise a jour du registre inter-etage EI/DI
+		  reg_EI_DI.pc_next <= ei_next_pc;
+		  reg_EI_DI.inst <= ei_inst;
+		end if;
 	end if;
 end process EI;
 
@@ -159,22 +166,28 @@ regf : entity work.registres(behavior)
 
 ------------------------------------------------------------------
 -- Affectations dans le domaine combinatoire de l'etage DI
--- 
+------------------------------------------------------------------
+
+dec_alea : detection_alea ( reg_EI_DI.inst(OPCODE'range),
+                            reg_DI_EX.code_op,
+                            reg_EI_DI.inst(RS'range),
+                            reg_EI_DI.inst(RT'range),
+                            reg_DI_EX.rt,
+                            di_halt ); 
 
 -- Calcul de l'extension de la valeur immediate
 di_imm_ext(IMM'range) <= reg_EI_DI.inst(IMM'range);
 di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when  di_ctrl_di.signed_ext='0' else
-															(others => reg_EI_DI.inst(IMM'high));
+					(others => reg_EI_DI.inst(IMM'high));
+
 -- Appel de la procedure contol
 UC: control( reg_EI_DI.inst(OPCODE'range),
-				 reg_EI_DI.inst(FCODE'range),
-				 reg_EI_DI.inst(BCODE'range),
-				 di_ctrl_di,
-				 di_ctrl_ex,
-				 di_ctrl_mem,
-				 di_ctrl_er );
-di_halt <= '0';
-di_flush <= '0';
+				     reg_EI_DI.inst(FCODE'range),
+				     reg_EI_DI.inst(BCODE'range),
+				     di_ctrl_di,
+				     di_ctrl_ex,
+				     di_ctrl_mem,
+				     di_ctrl_er );
 
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
@@ -188,6 +201,7 @@ begin
 		reg_DI_EX.mem_ctrl <= MEM_DEFL;
 		reg_DI_EX.er_ctrl 	<= ER_DEFL;
 	-- test du front actif d'horloge
+	
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
 		-- Mise a jour du registre inter-etage DI/EX
 		reg_DI_EX.pc_next		<= reg_EI_DI.pc_next;
@@ -199,6 +213,8 @@ begin
 		reg_DI_EX.jump_adr	<= reg_EI_DI.inst(JADR'range);
 		reg_DI_EX.rs_read		<= di_qa;
 		reg_DI_EX.rt_read		<= di_qb;
+		reg_DI_EX.code_op		<= reg_EI_DI.inst(OPCODE'range);
+		
 		-- Mise a jour des signaux de controle
 		reg_DI_EX.ex_ctrl		<= di_ctrl_ex;
 		reg_DI_EX.mem_ctrl	<= di_ctrl_mem;
@@ -216,7 +232,7 @@ end process DI;
 ------------------------------------------------------------------
 
 -- Appel de procedure ALU 
-AL: alu ( ex_alu_a, ex_alu_b, 
+AL: alu ( ex_send_alu_a, ex_send_alu_b, 
           ex_alu_s,
 					ex_alu_v,
 					ex_alu_n,
@@ -226,28 +242,33 @@ AL: alu ( ex_alu_a, ex_alu_b,
 					reg_DI_EX.ex_ctrl.ALU_OP );
 
 -- Appel de procedure envoi					
--- env: envoi ( reg_DI_EX.rs,
-             -- reg_DI_EX.rt,
-             -- reg_EX_MEM.er_ctrl.REGS_W,
-             -- reg_EX_MEM.reg_dst,             
-             -- reg_MEM_ER.er_ctrl.REGS_W,
-             -- reg_MEM_ER.reg_dst,             
-             -- reg_DI_EX.ex_ctrl.ALU_SRCA,
-	           -- reg_DI_EX.ex_ctrl.ALU_SRCB	);
+env: envoi ( reg_DI_EX.rs,
+             reg_DI_EX.rt,
+             reg_EX_MEM.er_ctrl.REGS_W,
+             reg_EX_MEM.reg_dst,             
+             reg_MEM_ER.er_ctrl.REGS_W,
+             reg_MEM_ER.reg_dst,             
+	           reg_DI_EX.ex_ctrl.ALU_SRCB,	
+	           ex_send_ctrl_a,
+	           ex_send_ctrl_b );
 
 -- set UAL Inputs: ex_alu_a in function of (REGS_QA,REGS_QB,IMMD) and ex_alu_b in function of (REGS_QB,IMMD, VAL_DEC)
 ex_alu_a <= reg_DI_EX.rs_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QA
             else reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QB
-            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCA = IMMD
-            else reg_EX_MEM.ual_S when reg_DI_EX.ex_ctrl.ALU_SRCA = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
-            else er_regd when reg_DI_EX.ex_ctrl.ALU_SRCA = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCA = IMMD;
               
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
             -- else ((DATA'range => '0') || reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC -- TOBEASKED
             else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
-            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD  -- IMMD
-            else reg_EX_MEM.ual_S when reg_DI_EX.ex_ctrl.ALU_SRCB = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
-            else er_regd when reg_DI_EX.ex_ctrl.ALU_SRCB = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD;  -- IMMD
+            
+ex_send_alu_a <= ex_alu_a when ex_send_ctrl_a = SRC_MUX_ALU_A            
+                 else reg_EX_MEM.ual_S when ex_send_ctrl_a = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
+                 else er_regd when ex_send_ctrl_a = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
+ 
+ ex_send_alu_b <= ex_alu_b when ex_send_ctrl_b = SRC_MUX_ALU_B           
+                  else reg_EX_MEM.ual_S when ex_send_ctrl_b = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
+                  else er_regd when ex_send_ctrl_b = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
                   
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
