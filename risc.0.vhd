@@ -66,16 +66,21 @@ architecture behavior of risc is
 	signal ei_flush	  : std_logic;	-- vidange de l'etage
 
 	-- Ressources de l'etage DI
-	signal di_qa			     : DATA;			-- sortie QA du banc de registres
-	signal di_qb			     : DATA; 			-- sortie QB du banc de registres
-	signal di_imm_ext		 : DATA;			-- valeur immediate etendue
-	signal di_ctrl_di		 : mxDI;			-- signaux de controle de l'etage DI
-	signal di_ctrl_ex		 : mxEX;			-- signaux de controle de l'etage EX
-	signal di_ctrl_mem	 : mxMEM;			-- signaux de controle de l'etage MEM
-	signal di_ctrl_er		 : mxER;			-- signaux de controle de l'etage ER
-	signal di_halt			   : std_logic;	-- suspension etage pipeline
-	signal di_flush		   : std_logic;	-- vidange de l'etage
-
+	signal di_qa			: DATA;			-- sortie QA du banc de registres
+	signal di_qb			: DATA; 			-- sortie QB du banc de registres
+	signal di_imm_ext		: DATA;			-- valeur immediate etendue
+	signal di_ctrl_di		: mxDI;			-- signaux de controle de l'etage DI
+	signal di_ctrl_ex		: mxEX;			-- signaux de controle de l'etage EX
+	signal di_ctrl_mem	: mxMEM;			-- signaux de controle de l'etage MEM
+	signal di_ctrl_er		: mxER;			-- signaux de controle de l'etage ER
+	signal di_halt			: std_logic;	-- suspension etage pipeline
+	signal di_flush		: std_logic;	-- vidange de l'etage
+    signal j_increment : std_logic;
+-- local variable used to stop control signals generation in case of J instruction
+-- we must wait for 3 cycle to re-enable control block and generate control signals for 
+-- the jumpped instruction							
+  signal j_counter : std_logic_vector(1 downto 0) := "00";
+  
 	-- Ressources de l'etage EX
 	signal ex_alu_a       : DATA;   -- Enty A of ALU
   signal ex_alu_b       : DATA;   -- Enty B of ALU
@@ -90,6 +95,7 @@ architecture behavior of risc is
   signal ex_new_pc      : PC;
   signal ex_send_ctrl_a : MUX_ALU_A_SEND; -- Control signal of the ALU_A source generate by the sending unit
   signal ex_send_ctrl_b : MUX_ALU_B_SEND; -- Control signal of the ALU_B source generate by the sending unit
+  signal ex_flush		: std_logic;	-- vidange de l'etage
   
 	-- Ressources de l'etage MEM
   signal mem_data     : DATA;
@@ -116,7 +122,7 @@ icache : entity work.memory(behavior)
 -- Affectations dans le domaine combinatoire de l'etage EI
 --
 
-ex_new_pc <= reg_DI_EX.jump_adr; -- 27..2 <= 25..0
+-- ex_new_pc <= reg_DI_EX.jump_adr; -- 27..2 <= 25..0
 --ex_new_pc(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4) <= "0000"; -- reg_DI_EX.pc_next(CPU_ADR_WIDTH-1 downto CPU_ADR_WIDTH-4); -- 31..28 
 --ex_new_pc(PCLOW-1 downto 0) <= "00";
 
@@ -126,9 +132,6 @@ ei_next_pc <= reg_PC(PC'range)+1;
 -- Add multiplexer to choose the address of J instructions
 ei_pc <= ex_new_pc when (reg_DI_EX.ex_ctrl.SAUT or ex_b_condition ) = '1'
           else ei_next_pc;
-            
-ei_halt   <= '0';
-ei_flush  <= '0';
 
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
@@ -141,14 +144,21 @@ begin
 		reg_PC <= PC_DEFL;
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
-		
-		if (di_halt = '0') then
-		  -- Mise a jour PC
+	  -- Test de vidage de l'etage
+	  if ( ei_flush	= '1' ) then
+	    reg_EI_DI.pc_next <= (others => '0');
+		  reg_EI_DI.inst <= (others => '0');
 		  reg_PC(PC'range) <= ei_pc;
-		  -- Mise a jour du registre inter-etage EI/DI
-		  reg_EI_DI.pc_next <= ei_next_pc;
-		  reg_EI_DI.inst <= ei_inst;
-		end if;
+	  else
+		  if (di_halt /= '1') then
+		    -- Mise a jour PC
+		    reg_PC(PC'range) <= ei_pc;
+		    -- Mise a jour du registre inter-etage EI/DI
+		    reg_EI_DI.pc_next <= ei_next_pc;
+		    reg_EI_DI.inst <= ei_inst;
+		  end if;
+	  end if;
+
 	end if;
 end process EI;
 
@@ -168,6 +178,7 @@ regf : entity work.registres(behavior)
 -- Affectations dans le domaine combinatoire de l'etage DI
 ------------------------------------------------------------------
 
+-- Appel de la procedure detection des aleas
 dec_alea : detection_alea ( reg_EI_DI.inst(OPCODE'range),
                             reg_DI_EX.code_op,
                             reg_EI_DI.inst(RS'range),
@@ -182,17 +193,25 @@ di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when  di_ctrl_di.sign
 
 -- Appel de la procedure contol
 UC: control( reg_EI_DI.inst(OPCODE'range),
-				     reg_EI_DI.inst(FCODE'range),
-				     reg_EI_DI.inst(BCODE'range),
-				     di_ctrl_di,
-				     di_ctrl_ex,
-				     di_ctrl_mem,
-				     di_ctrl_er );
+				 reg_EI_DI.inst(FCODE'range),
+				 reg_EI_DI.inst(BCODE'range),
+				 ex_b_condition,
+				 ei_flush,
+	       di_flush,
+	       ex_flush,
+				 j_counter,
+				 j_increment,
+				 di_halt,
+				 di_ctrl_di,
+				 di_ctrl_ex,
+				 di_ctrl_mem,
+				 di_ctrl_er );
 
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage DI/EX
 DI: process(CLK,RST)
+
 begin
 	-- test du reset
 	if (RST='0') then
@@ -200,25 +219,43 @@ begin
 		reg_DI_EX.ex_ctrl 	<= EX_DEFL;
 		reg_DI_EX.mem_ctrl <= MEM_DEFL;
 		reg_DI_EX.er_ctrl 	<= ER_DEFL;
+		j_counter <= "00";
 	-- test du front actif d'horloge
 	
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
-		-- Mise a jour du registre inter-etage DI/EX
-		reg_DI_EX.pc_next		<= reg_EI_DI.pc_next;
-		reg_DI_EX.rs			    <= reg_EI_DI.inst(RS'range);
-		reg_DI_EX.rt			    <= reg_EI_DI.inst(RT'range);
-		reg_DI_EX.rd			    <= reg_EI_DI.inst(RD'range);
-		reg_DI_EX.val_dec		<= reg_EI_DI.inst(VALDEC'range);
-		reg_DI_EX.imm_ext		<= di_imm_ext;
-		reg_DI_EX.jump_adr	<= reg_EI_DI.inst(JADR'range);
-		reg_DI_EX.rs_read		<= di_qa;
-		reg_DI_EX.rt_read		<= di_qb;
-		reg_DI_EX.code_op		<= reg_EI_DI.inst(OPCODE'range);
+	  -- vidage de l'etage
+	  if ( di_flush	= '1' ) then
+	    reg_DI_EX.ex_ctrl 	<= EX_DEFL;
+		  reg_DI_EX.mem_ctrl <= MEM_DEFL;
+		  reg_DI_EX.er_ctrl 	<= ER_DEFL;
+	  else
+		  -- Mise a jour du registre inter-etage DI/EX
+		  reg_DI_EX.pc_next		<= reg_EI_DI.pc_next;
+		  reg_DI_EX.rs			    <= reg_EI_DI.inst(RS'range);
+		  reg_DI_EX.rt			    <= reg_EI_DI.inst(RT'range);
+		  reg_DI_EX.rd			    <= reg_EI_DI.inst(RD'range);
+		  reg_DI_EX.val_dec		<= reg_EI_DI.inst(VALDEC'range);
+		  reg_DI_EX.imm_ext		<= di_imm_ext;
+		  reg_DI_EX.jump_adr	<= reg_EI_DI.inst(JADR'range);
+		  reg_DI_EX.rs_read		<= di_qa;
+		  reg_DI_EX.rt_read		<= di_qb;
+		  reg_DI_EX.code_op		<= reg_EI_DI.inst(OPCODE'range);
+		  -- Mise a jour des signaux de controle
+		  reg_DI_EX.ex_ctrl		<= di_ctrl_ex;
+		  reg_DI_EX.mem_ctrl	<= di_ctrl_mem;
+		  reg_DI_EX.er_ctrl		<= di_ctrl_er;
 		
-		-- Mise a jour des signaux de controle
-		reg_DI_EX.ex_ctrl		<= di_ctrl_ex;
-		reg_DI_EX.mem_ctrl	<= di_ctrl_mem;
-		reg_DI_EX.er_ctrl		<= di_ctrl_er;
+		  -- the increment signal is only set if we need to not treat the current instruction
+		  if (j_increment = '1' ) then
+		    if j_counter = "10" then
+		      j_counter <= "00";
+		    else 
+		      j_counter <= j_counter + '1';
+		    end if;
+  		  else
+  		    j_counter <= "00";
+		  end if;
+		end if;
 	end if;
 end process DI;
 
@@ -234,8 +271,8 @@ end process DI;
 -- Appel de procedure ALU 
 AL: alu ( ex_send_alu_a, ex_send_alu_b, 
           ex_alu_s,
-					ex_alu_v,
 					ex_alu_n,
+					ex_alu_v,
 					ex_alu_z,
 					ex_alu_c,
 					reg_DI_EX.ex_ctrl.ALU_SIGNED,
@@ -258,10 +295,11 @@ ex_alu_a <= reg_DI_EX.rs_read when reg_DI_EX.ex_ctrl.ALU_SRCA = REGS_QA
             else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCA = IMMD;
               
 ex_alu_b <= reg_DI_EX.rt_read when reg_DI_EX.ex_ctrl.ALU_SRCB = REGS_QB
-            -- else ((DATA'range => '0') || reg_DI_EX.val_dec) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC -- TOBEASKED
             else conv_std_logic_vector(conv_integer(reg_DI_EX.val_dec), ex_alu_b'length) when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_DEC
-            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD;  -- IMMD
-            
+            else reg_DI_EX.imm_ext when reg_DI_EX.ex_ctrl.ALU_SRCB = IMMD  -- IMMD
+            else EX_ZERO when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_ZERO
+            else EX_VAL_16 when reg_DI_EX.ex_ctrl.ALU_SRCB = VAL_16;
+
 ex_send_alu_a <= ex_alu_a when ex_send_ctrl_a = SRC_MUX_ALU_A            
                  else reg_EX_MEM.ual_S when ex_send_ctrl_a = SEND_UNIT_EX  -- Value of ALU_S of the previous instruction
                  else er_regd when ex_send_ctrl_a = SEND_UNIT_MEM;  -- Value read from memory or ALU_S of the previous instruction twice
@@ -273,6 +311,7 @@ ex_send_alu_a <= ex_alu_a when ex_send_ctrl_a = SRC_MUX_ALU_A
 ------------------------------------------------------------------
 -- Process Etage Execution de l'operation et mise a jour de
 --	l'etage EX
+------------------------------------------------------------------
 EX: process(CLK,RST)
 begin
 	-- test du reset
@@ -283,39 +322,54 @@ begin
 		
 	-- test du front actif d'horloge
 	elsif (CLK'event and CLK=CPU_WR_FRONT) then
-															  
-		-- Mise a jour du registre inter-etage EX/MEM
-		reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
+		-- vidage de l'etage
+	  if ( ex_flush	= '1' ) then
+		  reg_EX_MEM.mem_ctrl <= MEM_DEFL;
+		  reg_EX_MEM.er_ctrl 	<= ER_DEFL;
+	  else					  
+		  -- Mise a jour du registre inter-etage EX/MEM
+		  reg_EX_MEM.pc_next  <= reg_DI_EX.pc_next;  
 
-		reg_EX_MEM.ual_S    <= ex_alu_s;			      -- resultat ual -- (TODO)
-		reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
-
-		reg_EX_MEM.zero     <= ex_alu_z;
+		  reg_EX_MEM.ual_S    <= ex_alu_s;						            -- resultat ual -- (TODO)
+		  reg_EX_MEM.rt       <= reg_DI_EX.rt_read;         -- for the store instruction sw
+		  reg_EX_MEM.zero     <= ex_alu_z;
 		
-		-- propagation des signaux de controle de l'etage MEM & ER
-		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
-		reg_EX_MEM.er_ctrl	<= reg_DI_EX.er_ctrl;
+		  -- propagation des signaux de controle de l'etage MEM & ER
+		  reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
+		  reg_EX_MEM.er_ctrl	 <= reg_DI_EX.er_ctrl;
 
 		
-		-- affectation sequentielle pour garantir la mise a jour des signal a la fin de cycle
-		if (reg_DI_EX.ex_ctrl.REG_DST = REG_RD) then
-      reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
-    elsif (reg_DI_EX.ex_ctrl.REG_DST = REG_RT) then 
-      reg_EX_MEM.reg_dst  <= reg_DI_EX.rt;
-    else
-      reg_EX_MEM.reg_dst  <= (others => '1'); -- R31
-    end if; 
+		  -- affectation sequentielle pour garantir la mise a jour des signal a la fin de cycle
+		  if (reg_DI_EX.ex_ctrl.REG_DST = REG_RD) then
+        reg_EX_MEM.reg_dst  <= reg_DI_EX.rd;
+      elsif (reg_DI_EX.ex_ctrl.REG_DST = REG_RT) then 
+        reg_EX_MEM.reg_dst  <= reg_DI_EX.rt;
+      else
+        reg_EX_MEM.reg_dst  <= (others => '1'); -- R31
+      end if; 
     
-    -- propagation des signaux de controle de l'etage MEM & ER
-		reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
-		reg_EX_MEM.er_ctrl		<= reg_DI_EX.er_ctrl;
-      		  
+      -- propagation des signaux de controle de l'etage MEM & ER
+		  reg_EX_MEM.mem_ctrl	<= reg_DI_EX.mem_ctrl;
+		  reg_EX_MEM.er_ctrl		<= reg_DI_EX.er_ctrl;
+    end if;  		  
 	end if;
 end process EX;
 
--- reg_EX_MEM.reg_dst  <= reg_DI_EX.rd when reg_DI_EX.ex_ctrl.REG_DST = REG_RD else
-		                   -- reg_DI_EX.rt when reg_DI_EX.ex_ctrl.REG_DST = REG_RT else
-		                   -- "11111" ;		    	-- R31
+ex_b_condition <= '1' when (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZ and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLTZAL and ((ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1') or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BLEZ and ((ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZ and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGTZ and (not(ex_alu_n xor ex_alu_v) and not(ex_alu_z)) = '1' ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BGEZAL and (not(ex_alu_n xor ex_alu_v) or ex_alu_z) = '1' ) or
+                  
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BEQ and (ex_alu_z = '1') ) or
+                  (reg_DI_EX.ex_ctrl.BRA_SRC = BRANCHEMENT_BNE and (ex_alu_z = '0') )                
+                  else '0';
+
+ex_new_pc <= reg_DI_EX.jump_adr when reg_DI_EX.ex_ctrl.SAUT = '1'
+              else reg_DI_EX.imm_ext(PC'length-1 downto 0) when ex_b_condition = '1'
+              else reg_DI_EX.pc_next;
 		                       
 -- ===============================================================
 -- === Etage MEM =================================================
@@ -329,10 +383,6 @@ dcache : entity work.memory(behavior)
 			port map ( RST=>RST, CLK=>CLK, RW=>reg_EX_MEM.mem_ctrl.DC_RW, DS=>reg_EX_MEM.mem_ctrl.DC_DS, Signed=>reg_EX_MEM.mem_ctrl.DC_SIGNED, AS=>reg_EX_MEM.mem_ctrl.DC_AS, Ready=>open,
 								Berr=>open, ADR=>reg_EX_MEM.ual_S, D=>reg_EX_MEM.rt, Q=>mem_data );
 
-------------------------------------------------------------------
--- generate CPSrc signal in case of J instruction
--- CPSrc <= CP_SRC_ADR when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '1' or reg_EX_MEM.mem_ctrl.SAUT= '1'
---         else CP_SRC_NEXT_PC when (reg_EX_MEM.mem_ctrl.BRANCHEMENT and reg_EX_MEM.zero) = '0';
          
 ------------------------------------------------------------------
 -- Process Etage Memory (MEM) and update etage MEM/ER

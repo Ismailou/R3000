@@ -21,8 +21,8 @@ end test_risc;
 architecture behavior of test_risc is
 
 -- definition des constantes de test
-	constant FILE_I	: string 	:= "Benchs/mysecondasm.bin";
-	constant FILE_D	: string 	:= "";
+	constant FILE_I	: string 	:= "Benchs/mythirdasm.bin";
+	constant FILE_D	: string 	:= "Benchs/mysecondasm.bin";
 	constant WFRONT 	: std_logic	:= CPU_WR_FRONT;
 	constant TIMEOUT 	: time 		:= 400 ns; -- timeout de la simulation
 

@@ -26,6 +26,7 @@ count=0
 
 for inst in $PROG;
 do
+	printf '@CP %d: ' "${count}"
 		printf '%s\t|' "${instruction[$count]}"
 		printf '0x%x\n' "$((2#$inst))"
     count=$(( $count + 1 ))

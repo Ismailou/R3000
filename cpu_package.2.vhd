@@ -60,6 +60,10 @@ package cpu_package is
 	subtype DATA		is std_logic_vector(CPU_DATA_WIDTH-1 downto 0);
 	subtype REGS		is std_logic_vector(REG_WIDTH-1 downto 0);
 
+  -- constant used as inputs for ALU
+  constant EX_ZERO    : DATA := X"00000000";
+  constant EX_VAL_16  : DATA := X"00000010";
+  
 	-- define default values
 	constant PC_DEFL : ADDR := conv_std_logic_vector(0,ADDR'length);
 
@@ -151,13 +155,15 @@ package cpu_package is
 
 	---------------------------------------------------------------
 	-- Definition des multiplexeurs dans les etages
-	type MUX_ALU_A 	    is (REGS_QA,REGS_QB,IMMD);
-	type MUX_ALU_B 	    is (REGS_QB,IMMD,VAL_DEC);
-	type MUX_REG_DST	   is (REG_RD,REG_RT,R31);
-	type MUX_REGS_D	    is (ALU_S,MEM_Q,NextPC);
-  type MUX_ALU_A_SEND is (SRC_MUX_ALU_A,SEND_UNIT_EX,SEND_UNIT_MEM);
-  type MUX_ALU_B_SEND is (SRC_MUX_ALU_B,SEND_UNIT_EX,SEND_UNIT_MEM);
-    
+	type MUX_ALU_A 	    	is (REGS_QA,REGS_QB,IMMD);
+	type MUX_ALU_B 	    	is (REGS_QB,IMMD,VAL_DEC,VAL_16,VAL_ZERO);
+	type MUX_REG_DST	    is (REG_RD,REG_RT,R31);
+	type MUX_REGS_D	    	is (ALU_S,MEM_Q,NextPC);
+  	type MUX_ALU_A_SEND 	is (SRC_MUX_ALU_A,SEND_UNIT_EX,SEND_UNIT_MEM);
+  	type MUX_ALU_B_SEND 	is (SRC_MUX_ALU_B,SEND_UNIT_EX,SEND_UNIT_MEM);
+  	type BRANCHEMENT_SOURCE is (BRANCHEMENT_NONE,BRANCHEMENT_BLTZ,BRANCHEMENT_BGEZ,BRANCHEMENT_BLTZAL
+                                ,BRANCHEMENT_BGEZAL,BRANCHEMENT_BEQ,BRANCHEMENT_BNE,BRANCHEMENT_BGTZ,BRANCHEMENT_BLEZ);
+	
 	---------------------------------------------------------------
 	-- Definitions des structures de controles des etages
 
@@ -175,15 +181,14 @@ package cpu_package is
 		ALU_SIGNED	 : std_logic;							-- operation ALU signee ou non
 		ALU_SRCA 		 : MUX_ALU_A;							-- mux pour entree A de l'ALU
 		ALU_SRCB 		 : MUX_ALU_B;							-- mux pour entree B de l'ALU
-		REG_DST 			 : MUX_REG_DST;					-- mux pour rgistre destinataire
-		--BRA_SRC			: std_logic_vector (2 downto 0);
-		BRANCHEMENT	: std_logic;     -- true if the type of current instruction is B
-		SAUT	: std_logic;            -- true if the type of current instruction is J
+		REG_DST 			 : MUX_REG_DST;					-- mux pour registre destinataire
+		BRA_SRC			  : BRANCHEMENT_SOURCE;
+		SAUT	       : std_logic;            -- true if the type of current instruction is J
 	end record;	
 			
 	-- default EX control
 	constant EX_DEFL : mxEX := ( ALU_OP=>ALU_OPS'low, ALU_SRCA=>MUX_ALU_A'low, ALU_SRCB=>MUX_ALU_B'low,
-											REG_DST=>MUX_REG_DST'low, others=>'0' );
+								 REG_DST=>MUX_REG_DST'low, BRA_SRC=>BRANCHEMENT_SOURCE'low, others=>'0' );
 			
 	-- Structure des signaux de control de l'etage MEM
 	type mxMEM is record
@@ -291,6 +296,13 @@ package cpu_package is
 	procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 							F : in std_logic_vector(FCODE'length-1 downto 0);
 							B : in std_logic_vector(BCODE'length-1 downto 0);
+							b_condition : in std_logic;
+							signal ei_flush : out std_logic;
+	            signal di_flush : out std_logic;
+	            signal ex_flush : out std_logic;
+							j_counter  : in std_logic_vector(1 downto 0);
+							signal di_halt : in std_logic;
+							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		 -- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		 -- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
@@ -449,96 +461,102 @@ end alu;
 procedure control ( OP : in std_logic_vector(OPCODE'length-1 downto 0);
 							F : in std_logic_vector(FCODE'length-1 downto 0);
 							B : in std_logic_vector(BCODE'length-1 downto 0);
+							b_condition : in std_logic;
+							signal ei_flush : out std_logic;
+	            signal di_flush : out std_logic;
+	            signal ex_flush : out std_logic;
+							j_counter  : in std_logic_vector(1 downto 0);
+							signal di_halt : in std_logic;
+							signal j_increment  : out std_logic;
 							signal DI_ctrl	: out mxDI;		-- signaux de controle de l'etage DI
 							signal EX_ctrl	: out mxEX;		-- signaux de controle de l'etage EX
 							signal MEM_ctrl	: out mxMEM;	-- signaux de controle de l'etage MEM
 							signal ER_ctrl	: out mxER ) is	-- signaux de controle de l'etage ER
 
--- local variable used to stop control signals generation in case of J instruction
--- we must wait for 3 cycle to re-enable control block and generate control signals for 
--- the jumpped instruction							
-variable j_count : natural range 0 to 4;
-
 begin
 	-- Initialisation
-	DI_ctrl <= DI_DEFL;
-	EX_ctrl <= EX_DEFL;
+	DI_ctrl  <= DI_DEFL;
+	EX_ctrl  <= EX_DEFL;
 	MEM_ctrl <= MEM_DEFL;
-	ER_ctrl <= ER_DEFL;
-
-  
-  if ( j_count /= 0) then
-    DI_ctrl <= DI_DEFL;
-	  EX_ctrl <= EX_DEFL;
-	  MEM_ctrl <= MEM_DEFL;
-	  ER_ctrl <= ER_DEFL;
-	  
-	  -- increment j_count
-	  j_count := j_count + 1;
-
-	else
-	
-	 -- Controle DI : signe-t-on ou non l'extension de la valeur immediate
-	 if (	(OP=ADDI) or (OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or
-		  	(OP=LHU) or (OP=SB)	or (OP=SH) or (OP=SW) )then
-		  DI_ctrl.SIGNED_EXT <= '1';
-  	else
-		  DI_ctrl.SIGNED_EXT <= '0';
-  	end if;
-	
-   ------------------------------------------------------------------
-   -- Signal control of type R operations
-   ------------------------------------------------------------------	 
-  	if (OP=TYPE_R) then
+	ER_ctrl  <= ER_DEFL;
+    ei_flush <= '0';
+	di_flush <= '0';
+	ex_flush <= '0';
 	    
-  	  EX_ctrl.ALU_SRCA   <= REGS_QA;
-	   EX_ctrl.ALU_SRCB   <= REGS_QB;
-  	  EX_ctrl.REG_DST    <= REG_RD; 
+  -- global control to check J or B instruction is alerady fetched and decoded
+  -- and if we must halt DI stage
+  if ( j_counter /= "00" or b_condition = '1' or di_halt = '1') then	
+	  if ( b_condition = '1') then
+	    ei_flush <= '1';
+	    di_flush <= '1';
+	    ex_flush <= '1';
+	  else
+	   -- increment j_count
+	   j_increment <= '1';
+	  end if;
+	  -- else if di_halt do nothing because signal alerady set to default in initialization step
+	else	 
+    -- increment j_count
+	  j_increment <= '0';
 	  
-  	  -- MEM signals for the moment (disabled)
-	   MEM_ctrl.DC_DS     <= MEM_32;
-  	  MEM_ctrl.DC_RW     <= '0';
-	   MEM_ctrl.DC_AS     <= '0';
+  ------------------------------------------------------------------
+  -- Signal control of type R operations
+  ------------------------------------------------------------------	 
+	if (OP=TYPE_R) then
+	  
+	  -- Test signed/unsigned operation
+		if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
+		  EX_ctrl.ALU_SIGNED <= '0';
+		  MEM_ctrl.DC_SIGNED <= '0';
+		else 
+		  EX_ctrl.ALU_SIGNED <= '1';
+		  MEM_ctrl.DC_SIGNED <= '1';
+	  end if; 
+	  
+	  -- Ex control signals
+	  if (F=LSR or F=LSL) then
+	    EX_ctrl.ALU_SRCA   <= REGS_QB;
+	    EX_ctrl.ALU_SRCB   <= VAL_DEC;
+	  else 
+	    EX_ctrl.ALU_SRCA   <= REGS_QA;
+	    EX_ctrl.ALU_SRCB   <= REGS_QB;
+	  end if;
+	  
+	  EX_ctrl.REG_DST    <= REG_RD;
+	  
+	  -- ALU opertation signal
+	  if ((F=ADD) or (F=ADDU)) then
+	    EX_ctrl.ALU_OP <= ALU_ADD;
+	  elsif ((F=SUB) or (F=SUBU)) then
+	    EX_ctrl.ALU_OP <= ALU_SUB;
+	  elsif ((F=SLT) or (F=SLTU)) then
+	    EX_ctrl.ALU_OP <= ALU_SLT;
+	  elsif (F=iOR) then
+	    EX_ctrl.ALU_OP <= ALU_OR;
+	  elsif (F=iAND) then
+	    EX_ctrl.ALU_OP <= ALU_AND;
+	  elsif (F=iNOR) then
+	    EX_ctrl.ALU_OP <= ALU_NOR;
+	  elsif (F=iXOR) then
+	    EX_ctrl.ALU_OP <= ALU_XOR;
+	  elsif (F=LSL) then
+	    EX_ctrl.ALU_OP <= ALU_LSL;
+	  elsif (F=LSR) then
+	    EX_ctrl.ALU_OP <= ALU_LSR;
+	  end if; 
+	  
+	  -- MEM signals for the moment (disabled)
+	  MEM_ctrl.DC_DS     <= MEM_32;
+	  MEM_ctrl.DC_RW     <= '0';
+	  MEM_ctrl.DC_AS     <= '0';
 
-  	  -- ER control signals
-	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
-    	ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
-		
-   		-- Test signed/unsigned operation
-    	if ((F=ADDU) or (F=SUBU) or (F=SLTU)) then
-		    DI_ctrl.SIGNED_EXT <= '1';
-    		  EX_ctrl.ALU_SIGNED <= '1';
-    		  MEM_ctrl.DC_SIGNED <= '1';
-    	else 
-    		  DI_ctrl.SIGNED_EXT <= '0';
-    		  EX_ctrl.ALU_SIGNED <= '0';
-    		  MEM_ctrl.DC_SIGNED <= '0';
-  	  end if; 
-	  
-	   -- ALU opertation signal
-  	  if ((F=ADD) or (F=ADDU)) then
-	      EX_ctrl.ALU_OP <= ALU_ADD;
-  	  elsif ((F=SUB) or (F=SUBU)) then
-	      EX_ctrl.ALU_OP <= ALU_SUB;
-  	  elsif ((F=SLT) or (F=SLTU)) then
-        EX_ctrl.ALU_OP <= ALU_SLT;
-  	  elsif (F=iOR) then
-	      EX_ctrl.ALU_OP <= ALU_OR;
-  	  elsif (F=iAND) then
-	      EX_ctrl.ALU_OP <= ALU_AND;
-  	  elsif (F=iNOR) then
-        EX_ctrl.ALU_OP <= ALU_NOR;
-  	  elsif (F=iXOR) then
-	      EX_ctrl.ALU_OP <= ALU_XOR;
-  	  elsif (F=LSL) then
-	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
-	      EX_ctrl.ALU_OP <= ALU_LSL;
-  	  elsif (F=LSR) then
-	      EX_ctrl.ALU_SRCB   <= VAL_DEC; --not tested
-	      EX_ctrl.ALU_OP <= ALU_LSR;
-  	  end if;                
-  	end if;
-  
+	  -- ER control signals
+	  ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+      ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+	                 
+	end if;
+	
+	
   ------------------------------------------------------------------
   -- Signal control of type I operations
   ------------------------------------------------------------------ 
@@ -584,6 +602,14 @@ begin
 	                 
 	end if;
 	
+	-- LUI operation control signals
+	if (OP=LUI) then
+	  EX_ctrl.ALU_OP     <= ALU_LSL;
+	  EX_ctrl.ALU_SIGNED <= '0';
+	  EX_ctrl.ALU_SRCA   <= IMMD;
+	  EX_ctrl.ALU_SRCB   <= VAL_16; -- register source to compute the destination
+	end if;
+	
 	-- Memory load and store operations 
 	if ((OP=LB) or (OP=LH) or (OP=LW) or (OP=LBU) or (OP=LHU)
 	     or (OP=SB) or (OP=SH) or (OP=SW)) then
@@ -627,27 +653,53 @@ begin
 	  end if;
 	    	                 
 	end if;
-
-
-  -----------------------------------------------------------------
+	
+	-- Branch instruction of type I
+	if ((OP=BEQ) or (OP=BNE) or (OP=BLEZ) or (OP=BGTZ)) then  
+	  -- not signed operation
+  	  DI_ctrl.SIGNED_EXT <= '0';
+		 MEM_ctrl.DC_SIGNED <= '0';
+		   
+	   EX_ctrl.ALU_SRCA   <= REGS_QA;
+    	EX_ctrl.ALU_OP     <= ALU_SUB;
+    	EX_ctrl.ALU_SIGNED <= '1';
+    	
+	   if (OP=BEQ) then 
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BEQ;
+	     EX_ctrl.ALU_SRCB   <= REGS_QB;
+	   elsif (OP=BNE) then 
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BNE;
+	     EX_ctrl.ALU_SRCB   <= REGS_QB;
+	   elsif (OP=BLEZ) then
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLEZ;
+	     EX_ctrl.ALU_SRCB   <= VAL_ZERO;  
+	   elsif (OP=BGTZ) then
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGTZ;
+	     EX_ctrl.ALU_SRCB   <= VAL_ZERO;
+	   end if;
+	 
+	 end if;
+	 
+	
+  ------------------------------------------------------------------
   -- Decode of J instruction
   ------------------------------------------------------------------
     if ((OP=J) or (OP=JAL)) then
       -- increment j_count variable/semaphore
-      j_count := j_count + 1;
+      j_increment <= '1';
       
 	    -- set signed signal to 0
 	    DI_ctrl.SIGNED_EXT <= '0';
 		  EX_ctrl.ALU_SIGNED <= '0';
-		  MEM_ctrl.DC_SIGNED <= '0';
-	    
+		  MEM_ctrl.DC_SIGNED <= '0';    
+		  
 	    -- disable write signals
 	    MEM_ctrl.DC_RW     <= '0';
-	    ER_ctrl.REGS_W     <= '0';
-	    
+	    ER_ctrl.REGS_W     <= '0'; 
+	       
 	    -- Set saut signal
-	    EX_ctrl.SAUT <= '1';
-	    
+	    EX_ctrl.SAUT <= '1';   
+	     
 	    -- if JAL then write NextPC to R31 (ra)
 	   if (OP=JAL) then
 	     -- We save PC+4 value in R31 regidter
@@ -656,6 +708,57 @@ begin
 	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
 		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
 		 end if;
+		 
+	  end if;
+	 
+	------------------------------------------------------------------
+   -- Signal control Instruction de Type B : Branchement
+   ------------------------------------------------------------------	 
+  	if (OP=TYPE_B) then
+  	  -- not signed operation
+  	  DI_ctrl.SIGNED_EXT <= '0';
+		 MEM_ctrl.DC_SIGNED <= '0';
+		   
+	   EX_ctrl.ALU_SRCA   <= REGS_QA;
+	   EX_ctrl.ALU_SRCB   <= VAL_ZERO;
+  	  EX_ctrl.REG_DST    <= REG_RD;
+  	  EX_ctrl.ALU_SIGNED <= '1';
+	  
+  	  -- MEM signals for the moment (disabled)
+	   MEM_ctrl.DC_DS     <= MEM_32;
+  	  MEM_ctrl.DC_RW     <= '0';
+	   MEM_ctrl.DC_AS     <= '0';
+
+  	  -- ER control signals
+	   ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+    	ER_ctrl.REGS_SRCD	 <= ALU_S;						-- mux vers bus de donnee D du banc de registres
+    	
+    	-- set instruction to SUB
+    	EX_ctrl.ALU_OP <= ALU_SUB;
+    	
+	   if (B=BLTZ) then -- bltz Rx, offset
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZ;
+	   elsif (B=BGEZ) then -- bgez Rx, offset
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZ;
+	   elsif (B=BLTZAL) then -- bltzal Rx, offset, R31 = PC+4
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BLTZAL;
+	     
+	     -- We save PC+4 value in R31 register
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+		   
+	   elsif (B=BGEZAL) then -- bgezal Rx, offset, R31 = PC+4
+	     EX_ctrl.BRA_SRC <= BRANCHEMENT_BGEZAL;
+	     
+	     -- We save PC+4 value in R31 regidter
+	     EX_ctrl.REG_DST    <= R31;
+	     
+	     ER_ctrl.REGS_W     <= '0';							 -- signal d'ecriture W* du banc de registres
+		   ER_ctrl.REGS_SRCD	 <= NextPC;					-- mux vers bus de donnee D du banc de registres
+	   end if;
+	   
     end if;
   
 	end if;
@@ -720,15 +823,18 @@ procedure detection_alea ( EI_DI_OP : in std_logic_vector(OPCODE'length-1 downto
 begin
 
   -- Test a load instruction followed by a a R instruction
-  if (EI_DI_OP = TYPE_R and ((DI_EX_OP=LB) or (DI_EX_OP=LH) or (DI_EX_OP=LW) or (DI_EX_OP=LBU) or (DI_EX_OP=LHU))) then
+  if ( (EI_DI_OP = TYPE_R) and ((EI_DI_rs = DI_EX_rt) or (EI_DI_rt = DI_EX_rt)) and 
+       ((DI_EX_OP=LB) or (DI_EX_OP=LH) or (DI_EX_OP=LW) or (DI_EX_OP=LBU) or (DI_EX_OP=LHU))) then
     -- Test the use of the same register as source and destination in the R and load instructions
-    if ((EI_DI_rs = DI_EX_rt) or (EI_DI_rt = DI_EX_rt)) then
+    --if ((EI_DI_rs = DI_EX_rt) or (EI_DI_rt = DI_EX_rt)) then
       DFLT_CTRL_SEG <= '1';
     else
-      DFLT_CTRL_SEG <= '0';
-    end if;  
-  end if;          
-                          
+      DFLT_CTRL_SEG <= '0'; 
+    end if; 
+  --else
+    --DFLT_CTRL_SEG <= '0'; 
+  --end if;          
+                         
 end detection_alea;
 
 end cpu_package;
