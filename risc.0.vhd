@@ -58,47 +58,46 @@ architecture behavior of risc is
 	signal reg_MEM_ER	: MEM_ER;	-- registre pipeline MEM/ER
 
 	-- Ressources de l'etage EI
-	signal reg_PC		   : ADDR;			-- compteur programme format octet
-	signal ei_next_pc	: PC;				-- pointeur sur prochaine instruction
-	signal ei_pc	     : PC;				     -- pointeur sur instruction courrante
-	signal ei_inst		  : INST;			-- instruction en sortie du cache instruction
+	signal reg_PC		   : ADDR;			   -- compteur programme format octet
+	signal ei_next_pc	: PC;				    -- pointeur sur prochaine instruction
+	signal ei_pc	     : PC;				    -- pointeur sur instruction courrante
+	signal ei_inst		  : INST;			   -- instruction en sortie du cache instruction
 	signal ei_halt		  : std_logic;	-- suspension etage pipeline
 	signal ei_flush	  : std_logic;	-- vidange de l'etage
 
 	-- Ressources de l'etage DI
-	signal di_qa			: DATA;			-- sortie QA du banc de registres
-	signal di_qb			: DATA; 			-- sortie QB du banc de registres
-	signal di_imm_ext		: DATA;			-- valeur immediate etendue
-	signal di_ctrl_di		: mxDI;			-- signaux de controle de l'etage DI
-	signal di_ctrl_ex		: mxEX;			-- signaux de controle de l'etage EX
-	signal di_ctrl_mem	: mxMEM;			-- signaux de controle de l'etage MEM
-	signal di_ctrl_er		: mxER;			-- signaux de controle de l'etage ER
-	signal di_halt			: std_logic;	-- suspension etage pipeline
-	signal di_flush		: std_logic;	-- vidange de l'etage
-    signal j_increment : std_logic;
--- local variable used to stop control signals generation in case of J instruction
--- we must wait for 3 cycle to re-enable control block and generate control signals for 
--- the jumpped instruction							
+	signal di_qa			    : DATA;      -- sortie QA du banc de registres
+	signal di_qb			    : DATA;      -- sortie QB du banc de registres
+	signal di_imm_ext		: DATA;		   	-- valeur immediate etendue
+	signal di_ctrl_di		: mxDI;			   -- signaux de controle de l'etage DI
+	signal di_ctrl_ex		: mxEX;			   -- signaux de controle de l'etage EX
+	signal di_ctrl_mem	: mxMEM;			  -- signaux de controle de l'etage MEM
+	signal di_ctrl_er		: mxER;			   -- signaux de controle de l'etage ER
+	signal di_halt			  : std_logic; -- suspension etage pipeline
+	signal di_flush		  : std_logic; -- vidange de l'etage
+  signal j_increment : std_logic; -- local variable used to stop control signals generation in case of J instruction
+                                  -- we must wait for 3 cycle to re-enable control block and generate control signals for 
+                                  -- the jumpped instruction							
   signal j_counter : std_logic_vector(1 downto 0) := "00";
   
 	-- Ressources de l'etage EX
-	signal ex_alu_a       : DATA;   -- Enty A of ALU
-  signal ex_alu_b       : DATA;   -- Enty B of ALU
+	signal ex_alu_a       : DATA;             -- Enty A of ALU
+  signal ex_alu_b       : DATA;             -- Enty B of ALU
   signal ex_send_alu_a  : DATA;   
   signal ex_send_alu_b  : DATA;   
-  signal ex_alu_s       : DATA;   -- Output S of ALU
-  signal ex_alu_n       : std_logic; -- negative output signal of ALU
-  signal ex_alu_v       : std_logic; -- overflow
-  signal ex_alu_z       : std_logic; -- zero
-  signal ex_alu_c       : std_logic; -- carru
+  signal ex_alu_s       : DATA;             -- Output S of ALU
+  signal ex_alu_n       : std_logic;        -- negative output signal of ALU
+  signal ex_alu_v       : std_logic;        -- overflow
+  signal ex_alu_z       : std_logic;        -- zero
+  signal ex_alu_c       : std_logic;        -- carri
   signal ex_b_condition : std_logic := '0'; -- BRANCHEMENT and ZNV
   signal ex_new_pc      : PC;
-  signal ex_send_ctrl_a : MUX_ALU_A_SEND; -- Control signal of the ALU_A source generate by the sending unit
-  signal ex_send_ctrl_b : MUX_ALU_B_SEND; -- Control signal of the ALU_B source generate by the sending unit
-  signal ex_flush		: std_logic;	-- vidange de l'etage
+  signal ex_send_ctrl_a : MUX_ALU_A_SEND;   -- Control signal of the ALU_A source generate by the sending unit
+  signal ex_send_ctrl_b : MUX_ALU_B_SEND;   -- Control signal of the ALU_B source generate by the sending unit
+  signal ex_flush		     : std_logic;        -- vidange de l'etage
   
 	-- Ressources de l'etage MEM
-  signal mem_data     : DATA;
+  signal mem_data  : DATA;
   
 	-- Ressources de l'etage ER
 	signal er_pc     : ADDR;
@@ -150,7 +149,7 @@ begin
 		  reg_EI_DI.inst <= (others => '0');
 		  reg_PC(PC'range) <= ei_pc;
 	  else
-		  if (di_halt /= '1') then
+		  if (ei_halt = '0') then
 		    -- Mise a jour PC
 		    reg_PC(PC'range) <= ei_pc;
 		    -- Mise a jour du registre inter-etage EI/DI
@@ -184,6 +183,7 @@ dec_alea : detection_alea ( reg_EI_DI.inst(OPCODE'range),
                             reg_EI_DI.inst(RS'range),
                             reg_EI_DI.inst(RT'range),
                             reg_DI_EX.rt,
+                            ei_halt,
                             di_halt ); 
 
 -- Calcul de l'extension de la valeur immediate
@@ -192,21 +192,21 @@ di_imm_ext(DATA'high downto IMM'high+1) <= (others => '0') when  di_ctrl_di.sign
 					(others => reg_EI_DI.inst(IMM'high));
 
 -- Appel de la procedure contol
-UC: control( reg_EI_DI.inst(OPCODE'range),
-				 reg_EI_DI.inst(FCODE'range),
-				 reg_EI_DI.inst(BCODE'range),
-				 ex_b_condition,
-				 ei_flush,
-	       di_flush,
-	       ex_flush,
-				 j_counter,
-				 j_increment,
-				 di_halt,
-				 di_ctrl_di,
-				 di_ctrl_ex,
-				 di_ctrl_mem,
-				 di_ctrl_er );
-
+UC: control( reg_EI_DI.inst(OPCODE'range),    
+				     reg_EI_DI.inst(FCODE'range),
+				     reg_EI_DI.inst(BCODE'range),
+				     ex_b_condition,
+				     j_counter,
+				     di_halt,
+				     ei_flush,
+	           di_flush,
+	           ex_flush,
+				     j_increment,
+				     di_ctrl_di,
+				     di_ctrl_ex,
+				     di_ctrl_mem,
+				     di_ctrl_er );
+				 
 ------------------------------------------------------------------
 -- Process Etage Extraction de l'instruction et mise a jour de
 --	l'etage DI/EX
